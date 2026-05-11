@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UNIQUE LAUNCHER</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas class="space-canvas" id="space-canvas" aria-hidden="true"></canvas>
+  <header class="window-titlebar">
+    <div class="window-drag-region">
+      <span class="titlebar-icon-wrap">
+        <img class="titlebar-icon" id="titlebar-icon" alt="" />
+        <span class="brand-mark titlebar-mark" id="titlebar-icon-fallback">UL</span>
+      </span>
+      <strong>UNIQUE LAUNCHER</strong>
+    </div>
+    <div class="window-controls">
+      <button class="window-control" id="window-minimize" type="button" aria-label="Свернуть" title="Свернуть">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10" /></svg>
+      </button>
+      <button class="window-control" id="window-maximize" type="button" aria-label="Развернуть" title="Развернуть">
+        <svg class="icon-maximize" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.2" /></svg>
+        <svg class="icon-restore" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4h6v6" /><path d="M4 6h6v6H4z" /></svg>
+      </button>
+      <button class="window-control close" id="window-close" type="button" aria-label="Закрыть" title="Закрыть">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>
+      </button>
+    </div>
+  </header>
+  <main class="app">
+    <section class="auth-screen" id="auth-screen">
+      <div class="auth-hero">
+        <div class="brand-mark">UL</div>
+        <p class="eyebrow">закрытый сервер</p>
+        <h1>UNIQUE LAUNCHER</h1>
+        <p class="hero-copy">Единый вход, Fabric-сборка модов из папки проекта, свои скины, плащи и прямой запуск на сервер.</p>
+        <div class="hero-stats">
+          <div>
+            <strong id="auth-mods-count">0</strong>
+            <span>модов</span>
+          </div>
+          <div>
+            <strong>Fabric</strong>
+            <span>ядро</span>
+          </div>
+          <div>
+            <strong>2FA</strong>
+            <span>защита</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button class="tab-button active" id="login-tab" type="button">Вход</button>
+          <button class="tab-button" id="register-tab" type="button">Регистрация</button>
+        </div>
+
+        <form class="auth-form" id="login-form">
+          <label>
+            Ник
+            <input id="login-nick" autocomplete="username" placeholder="Player_01" />
+          </label>
+          <label>
+            Пароль
+            <input id="login-password" type="password" autocomplete="current-password" placeholder="Минимум 6 символов" />
+          </label>
+          <label>
+            Google Authenticator
+            <input id="login-totp" inputmode="numeric" placeholder="Если включён" />
+          </label>
+          <button class="primary-button" id="login-button" type="submit">Войти в лаунчер</button>
+          <p class="message" id="login-message"></p>
+        </form>
+
+        <form class="auth-form hidden" id="register-form">
+          <label>
+            Ник
+            <input id="register-nick" autocomplete="username" placeholder="Player_01" />
+          </label>
+          <label>
+            Пароль
+            <input id="register-password" type="password" autocomplete="new-password" placeholder="Минимум 6 символов" />
+          </label>
+          <label class="check-row">
+            <input id="register-totp" type="checkbox" />
+            <span>Подключить Google Authenticator</span>
+          </label>
+          <button class="primary-button" id="register-button" type="submit">Создать аккаунт</button>
+          <p class="message" id="register-message"></p>
+          <p class="totp-link" id="totp-hint"></p>
+        </form>
+      </div>
+    </section>
+
+    <section class="launcher-screen hidden" id="launcher-screen" data-active-section="main">
+      <nav class="top-nav">
+        <div class="nav-brand">
+          <span class="nav-brand-icon-wrap">
+            <img class="nav-brand-icon" id="nav-brand-icon" alt="" />
+            <span class="brand-mark small nav-brand-fallback">UL</span>
+          </span>
+          <div>
+            <strong>UNIQUE LAUNCHER</strong>
+            <span id="server-label">Сервер проекта</span>
+          </div>
+        </div>
+        <div class="nav-actions">
+          <span class="user-pill" id="active-user">offline</span>
+          <button class="ghost-button" id="logout-button" type="button">Выйти</button>
+        </div>
+      </nav>
+
+      <div class="section-tabs" aria-label="Разделы лаунчера">
+        <button class="section-tab active" type="button" data-section="main" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" /></svg>
+          <span>Основное меню</span>
+        </button>
+        <button class="section-tab" type="button" data-section="settings" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M12 18v3" /><path d="M4.8 7.2 7 9.4" /><path d="m17 14.6 2.2 2.2" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.8 16.8 2.2-2.2" /><path d="m17 9.4 2.2-2.2" /><circle cx="12" cy="12" r="3.5" /></svg>
+          <span>Настройки Minecraft</span>
+        </button>
+        <button class="section-tab" type="button" data-section="profile" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0v1a4 4 0 0 1-8 0z" /><path d="M5 21a7 7 0 0 1 14 0" /></svg>
+          <span>Профиль</span>
+        </button>
+      </div>
+
+      <div class="dashboard">
+        <section class="launch-panel" data-section-panel="main">
+          <div class="wallpaper-preview" id="wallpaper-preview">
+            <div class="scanline"></div>
+            <div class="launch-copy">
+              <p class="eyebrow">готов к запуску</p>
+              <h2>Minecraft <span id="version-label">1.20.1</span></h2>
+              <p id="server-info">play.unique.local:25566</p>
+            </div>
+          </div>
+
+          <div class="launch-actions">
+            <button class="play-button" id="launch-button" type="button">Запустить Fabric</button>
+            <div class="launch-status" id="launch-status">Моды, скин, плащ и ресурс-паки будут подготовлены перед запуском.</div>
+          </div>
+        </section>
+
+        <aside class="side-panel" data-section-panel="main">
+          <section class="panel-section">
+            <div class="section-head">
+              <h3>Моды проекта</h3>
+              <button class="tiny-button" id="refresh-mods" type="button">Обновить</button>
+            </div>
+            <ul class="mods-list" id="mods-list"></ul>
+            <p class="hint" id="mods-folder"></p>
+          </section>
+
+          <section class="panel-section">
+            <h3>Профиль игрока</h3>
+            <div class="asset-grid">
+              <button class="asset-tile" id="select-skin" type="button">
+                <span>HD скин</span>
+                <img id="skin-preview" alt="" />
+                <small id="skin-name">не выбран</small>
+              </button>
+              <button class="asset-tile" id="select-cape" type="button">
+                <span>Плащ</span>
+                <img id="cape-preview" alt="" />
+                <small id="cape-name">не выбран</small>
+              </button>
+            </div>
+            <label class="skin-model-row">
+              Skin model
+              <select id="skin-model">
+                <option value="auto">Auto</option>
+                <option value="default">Classic / Wide</option>
+                <option value="slim">Slim / Alex</option>
+              </select>
+            </label>
+            <div class="player-preview" id="player-preview">
+              <canvas id="player-preview-canvas" width="320" height="360" aria-label="3D player preview"></canvas>
+              <div class="player-preview-meta">
+                <strong>3D Preview</strong>
+                <span>Drag to rotate, wheel to zoom</span>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="settings-panel" data-section-panel="settings">
+          <div class="settings-grid">
+            <section class="panel-section">
+              <div class="section-head">
+                <h3>Максимум ОЗУ</h3>
+                <span id="system-memory">RAM</span>
+              </div>
+              <div class="preset-row">
+                <button class="preset-button" data-max="2048" type="button">Lite</button>
+                <button class="preset-button" data-max="4096" type="button">Normal</button>
+                <button class="preset-button" data-max="8192" type="button">Ultra</button>
+              </div>
+              <label class="range-row">
+                <span>Максимум: <b id="memory-max-label">4096</b> МБ</span>
+                <input id="memory-max" type="range" min="1024" max="16384" step="256" />
+              </label>
+            </section>
+
+            <section class="panel-section">
+              <div class="section-head compact">
+                <h3>Версия и ядро</h3>
+                <span>Fabric</span>
+              </div>
+              <label>
+                Версия Minecraft
+                <input id="minecraft-version" placeholder="1.20.1" />
+              </label>
+              <label>
+                Fabric Loader
+                <input id="fabric-loader-version" placeholder="latest" />
+              </label>
+              <label>
+                Java
+                <div class="inline-field">
+                  <input id="java-path" placeholder="java из PATH" />
+                  <button class="tiny-button" id="select-java" type="button">Выбрать</button>
+                </div>
+              </label>
+            </section>
+
+            <section class="panel-section wide">
+              <div class="section-head">
+                <h3>Обои главного меню</h3>
+                <button class="tiny-button" id="choose-wallpaper" type="button">Выбрать PNG/JPG</button>
+              </div>
+              <p class="hint">PNG и JPG применяются в лаунчере и конвертируются в PNG-ресурс-пак для главного меню Minecraft.</p>
+              <p class="file-line" id="wallpaper-name">обои не выбраны</p>
+            </section>
+
+            <section class="panel-section wide">
+              <div class="section-head compact">
+                <h3>Настройки лаунчера</h3>
+                <span>UNIQUE</span>
+              </div>
+              <label class="check-row setting-check">
+                <input id="hide-launcher-during-game" type="checkbox" />
+                <span>Скрывать лаунчер во время игры</span>
+              </label>
+              <p class="hint">Окно вернётся автоматически после закрытия Minecraft или остановки запуска.</p>
+            </section>
+          </div>
+        </section>
+
+        <section class="profile-panel" data-section-panel="profile">
+          <div class="section-head">
+            <h3>Профиль</h3>
+            <span id="profile-status">UNIQUE</span>
+          </div>
+          <div class="profile-grid">
+            <section class="panel-section">
+              <div class="section-head compact">
+                <h3>Соцсети</h3>
+                <span>Discord Activity</span>
+              </div>
+              <label>
+                YouTube
+                <input id="profile-youtube" placeholder="https://youtube.com/@unique" />
+              </label>
+              <label>
+                Twitch
+                <input id="profile-twitch" placeholder="https://twitch.tv/unique" />
+              </label>
+              <button class="primary-button profile-save-button" id="save-profile-links" type="button">Сохранить профиль</button>
+              <p class="message" id="profile-message"></p>
+            </section>
+
+            <section class="panel-section">
+              <div class="section-head compact">
+                <h3>Spotify</h3>
+                <span id="spotify-status">не привязан</span>
+              </div>
+              <div class="spotify-card">
+                <strong id="spotify-now-playing">Spotify не привязан.</strong>
+                <span id="spotify-account">Музыка появится здесь после привязки.</span>
+                <div class="spotify-progress hidden" id="spotify-progress">
+                  <div class="spotify-progress-track">
+                    <span id="spotify-progress-bar"></span>
+                  </div>
+                  <div class="spotify-progress-time">
+                    <span id="spotify-current-time">0:00</span>
+                    <span id="spotify-duration">0:00</span>
+                  </div>
+                </div>
+              </div>
+              <div class="profile-actions">
+                <button class="tiny-button" id="connect-spotify" type="button">Привязать Spotify</button>
+                <button class="tiny-button" id="refresh-spotify" type="button">Обновить</button>
+                <button class="tiny-button" id="disconnect-spotify" type="button">Отключить</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="log-panel" data-section-panel="main">
+          <div class="section-head">
+            <h3>Журнал запуска</h3>
+            <button class="tiny-button" id="clear-log" type="button">Очистить</button>
+          </div>
+          <pre id="launch-log"></pre>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

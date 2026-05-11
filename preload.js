@@ -1,0 +1,30 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  register: (payload) => ipcRenderer.invoke('auth-register', payload),
+  login: (payload) => ipcRenderer.invoke('auth-login', payload),
+  getCurrentSession: () => ipcRenderer.invoke('auth-current-session'),
+  logout: (payload) => ipcRenderer.invoke('auth-logout', payload),
+  listMods: () => ipcRenderer.invoke('list-mods'),
+  getSettings: (payload) => ipcRenderer.invoke('get-settings', payload),
+  saveSettings: (payload) => ipcRenderer.invoke('save-settings', payload),
+  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  chooseFile: (options) => ipcRenderer.invoke('choose-file', options),
+  getAssetPreview: (filePath) => ipcRenderer.invoke('get-asset-preview', filePath),
+  getTitlebarIcon: () => ipcRenderer.invoke('get-titlebar-icon'),
+  getProfile: (payload) => ipcRenderer.invoke('profile-get', payload),
+  saveProfileLinks: (payload) => ipcRenderer.invoke('profile-save-links', payload),
+  connectSpotify: (payload) => ipcRenderer.invoke('spotify-connect', payload),
+  disconnectSpotify: (payload) => ipcRenderer.invoke('spotify-disconnect', payload),
+  getSpotifyNowPlaying: (payload) => ipcRenderer.invoke('spotify-now-playing', payload),
+  windowControl: (action) => ipcRenderer.invoke('window-control', action),
+  isWindowMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  onWindowMaximizedState: (callback) => ipcRenderer.on('window-maximized-state', (event, maximized) => callback(maximized)),
+  launchMinecraft: (payload) => ipcRenderer.invoke('launch-minecraft', payload),
+  stopMinecraft: (payload) => ipcRenderer.invoke('stop-minecraft', payload),
+  onLaunchProgress: (callback) => ipcRenderer.on('launch-progress', (event, data) => callback(data)),
+  onLaunchLog: (callback) => ipcRenderer.on('launch-log', (event, data) => callback(data)),
+  onLaunchDebug: (callback) => ipcRenderer.on('launch-debug', (event, data) => callback(data)),
+  onLaunchClosed: (callback) => ipcRenderer.on('launch-closed', (event, code) => callback(code)),
+  onLaunchError: (callback) => ipcRenderer.on('launch-error', (event, error) => callback(error))
+});

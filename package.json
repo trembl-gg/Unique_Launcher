@@ -1,0 +1,60 @@
+{
+  "name": "minecraft-launcher",
+  "version": "1.0.0",
+  "description": "UNIQUE LAUNCHER with custom mods, auth, Discord RPC, skins and server-only launch",
+  "main": "main.js",
+  "scripts": {
+    "check": "node --check main.js && node --check preload.js && node --check renderer/renderer.js",
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "bcryptjs": "^2.4.3",
+    "discord-rpc": "^4.0.1",
+    "electron-store": "^8.1.0",
+    "minecraft-launcher-core": "^2.6.0",
+    "speakeasy": "^2.0.0"
+  },
+  "devDependencies": {
+    "electron": "^26.0.0",
+    "electron-builder": "^24.6.1"
+  },
+  "build": {
+    "appId": "com.unique.launcher",
+    "productName": "UNIQUE LAUNCHER",
+    "files": [
+      "**/*",
+      "!mods/**",
+      "!bukkit-plugins/**",
+      "!fabric-menu-mod/build/**",
+      "!bukkit-music-status-plugin/build/**"
+    ],
+    "extraResources": [
+      {
+        "from": "mods",
+        "to": "mods",
+        "filter": [
+          "*.jar"
+        ]
+      },
+      {
+        "from": "bukkit-plugins",
+        "to": "bukkit-plugins",
+        "filter": [
+          "*.jar"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "unique иконка.ico"
+    },
+    "nsis": {
+      "include": "build/installer.nsh"
+    },
+    "directories": {
+      "buildResources": "assets"
+    }
+  }
+}
