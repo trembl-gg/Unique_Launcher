@@ -48,29 +48,3 @@ npm run check
 ```powershell
 npm run dist
 ```
-
-## Конфигурация
-
-Чувствительные значения задаются через `.env` или переменные окружения. Файл `.env` не должен попадать в репозиторий.
-
-Основные переменные:
-
-- `PROJECT_SERVER_HOST`
-- `PROJECT_SERVER_PORT`
-- `UNIQUE_DISCORD_CLIENT_ID`
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_CLIENT_SECRET`
-- `SPOTIFY_REDIRECT_PORT`
-- `PROJECT_TPS_URL`
-
-## Релиз
-
-Текущий релиз: `1.0.0`.
-
-Перед публикацией:
-
-1. Проверить `.env` и локальные ассеты.
-2. Собрать приватные моды/плагины отдельно.
-3. Положить нужные `.jar` в runtime-папки перед упаковкой.
-4. Запустить `npm run check`.
-5. Запустить `npm run dist`.
