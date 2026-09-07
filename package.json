@@ -1,12 +1,16 @@
 {
   "name": "minecraft-launcher",
-  "version": "1.0.0",
+  "version": "1.2.7",
   "description": "UNIQUE LAUNCHER with custom mods, auth, Discord RPC, skins and server-only launch",
+  "author": "trembl_gg",
   "main": "main.js",
   "scripts": {
-    "check": "node --check main.js && node --check preload.js && node --check renderer/renderer.js",
+    "check": "node --check main.js && node --check preload.js && node --check renderer/renderer.js && node --check renderer/webview2-bridge.js && node --check webview2/node-backend.js && node --check webview2/electron-shim.js",
     "start": "electron .",
+    "start:webview2-backend": "node webview2/node-backend.js",
+    "dist:webview2": "build-webview2.bat",
     "dist": "electron-builder --win --x64",
+    "release:local": "electron-builder --win --x64 --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -14,6 +18,7 @@
     "bcryptjs": "^2.4.3",
     "discord-rpc": "^4.0.1",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "minecraft-launcher-core": "^2.6.0",
     "speakeasy": "^2.0.0"
   },
@@ -24,12 +29,33 @@
   "build": {
     "appId": "com.unique.launcher",
     "productName": "UNIQUE LAUNCHER",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "removePackageScripts": true,
+    "afterPack": "build/afterPack.js",
     "files": [
       "**/*",
+      "!**/.env",
+      "!**/.env.*",
+      "!dist/**",
+      "!out/**",
+      "!release/**",
+      "!config/**",
+      "!logs/**",
+      "!*.log",
+      "!*.html",
+      "!temp_site.*",
+      "!build-fabric-mod.bat",
+      "!build-exe.bat",
+      "!build-webview2.bat",
+      "!hs_err_pid*.log",
       "!mods/**",
       "!bukkit-plugins/**",
-      "!fabric-menu-mod/build/**",
-      "!bukkit-music-status-plugin/build/**"
+      "!server-api/**",
+      "!webview2/**",
+      "!fabric-menu-mod/**",
+      "!bukkit-music-status-plugin/**"
     ],
     "extraResources": [
       {
@@ -48,13 +74,23 @@
       }
     ],
     "win": {
-      "icon": "unique иконка.ico"
+      "icon": "unique иконка.ico",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
     },
     "directories": {
       "buildResources": "assets"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "http://192.168.2.3/updates"
+      }
+    ]
   }
 }

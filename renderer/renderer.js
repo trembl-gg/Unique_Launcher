@@ -2,10 +2,13 @@ const authScreen = document.getElementById('auth-screen');
 const launcherScreen = document.getElementById('launcher-screen');
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
+const guestForm = document.getElementById('guest-form');
 const loginTab = document.getElementById('login-tab');
 const registerTab = document.getElementById('register-tab');
+const guestTab = document.getElementById('guest-tab');
 const loginMessage = document.getElementById('login-message');
 const registerMessage = document.getElementById('register-message');
+const guestMessage = document.getElementById('guest-message');
 const totpHint = document.getElementById('totp-hint');
 const launchStatus = document.getElementById('launch-status');
 const launchLog = document.getElementById('launch-log');
@@ -14,7 +17,15 @@ const modsFolder = document.getElementById('mods-folder');
 const authModsCount = document.getElementById('auth-mods-count');
 const serverInfo = document.getElementById('server-info');
 const serverLabel = document.getElementById('server-label');
+const serverRegistryList = document.getElementById('server-registry-list');
 const activeUserLabel = document.getElementById('active-user');
+const activeUserName = document.getElementById('active-user-name');
+const activeUserAvatar = document.getElementById('active-user-avatar');
+const accountName = document.getElementById('account-name');
+const accountAvatar = document.getElementById('account-avatar');
+const profileMainName = document.getElementById('profile-main-name');
+const profileMainAvatar = document.getElementById('profile-main-avatar');
+const profileModeLabel = document.getElementById('profile-mode-label');
 const systemMemory = document.getElementById('system-memory');
 const wallpaperPreview = document.getElementById('wallpaper-preview');
 const wallpaperName = document.getElementById('wallpaper-name');
@@ -34,20 +45,96 @@ const windowMaximizeButton = document.getElementById('window-maximize');
 const titlebarIcon = document.getElementById('titlebar-icon');
 const navBrandIcon = document.getElementById('nav-brand-icon');
 const playerPreviewCanvas = document.getElementById('player-preview-canvas');
-const sectionTabs = Array.from(document.querySelectorAll('.section-tab'));
+const newsList = document.getElementById('news-list');
+const updateStatus = document.getElementById('update-status');
+const updateMessage = document.getElementById('update-message');
+const installUpdateButton = document.getElementById('install-update');
+const diagnosticsMessage = document.getElementById('diagnostics-message');
+const readinessStatus = document.getElementById('readiness-status');
+const readinessGrid = document.getElementById('readiness-grid');
+const apiHealthStatus = document.getElementById('api-health-status');
+const apiHealthDetail = document.getElementById('api-health-detail');
+const apiHealthCard = document.getElementById('api-health-card');
+const javaHealthStatus = document.getElementById('java-health-status');
+const javaHealthDetail = document.getElementById('java-health-detail');
+const javaHealthCard = document.getElementById('java-health-card');
+const serverHealthStatus = document.getElementById('server-health-status');
+const serverHealthDetail = document.getElementById('server-health-detail');
+const serversHealthCard = document.getElementById('servers-health-card');
+const updateHealthStatus = document.getElementById('update-health-status');
+const launcherBuildLabel = document.getElementById('launcher-build-label');
+const launchInsights = {
+  version: document.getElementById('insight-version'),
+  ram: document.getElementById('insight-ram'),
+  server: document.getElementById('insight-server'),
+  assets: document.getElementById('insight-assets')
+};
+const sectionTabs = Array.from(document.querySelectorAll('.section-tab, .rail-button'));
+const sectionButtons = Array.from(document.querySelectorAll('[data-section]'));
+const settingsTabs = Array.from(document.querySelectorAll('.settings-tab'));
+const settingsGroups = Array.from(document.querySelectorAll('[data-settings-group]'));
+const buildLibrary = document.getElementById('build-library');
+const buildLibraryGrid = document.getElementById('build-library-grid');
+const buildLibraryStatus = document.getElementById('build-library-status');
+const instanceList = document.getElementById('instance-list');
+const refreshInstancesButton = document.getElementById('refresh-instances');
+const createInstanceButton = document.getElementById('create-instance');
+const modrinthModLoaderLabel = document.getElementById('modrinth-mod-loader-label');
+const modrinthPackLoaderLabel = document.getElementById('modrinth-pack-loader-label');
+const modrinthModSearch = document.getElementById('modrinth-mod-search');
+const modrinthModSearchButton = document.getElementById('modrinth-mod-search-button');
+const modrinthModStatus = document.getElementById('modrinth-mod-status');
+const modrinthModResults = document.getElementById('modrinth-mod-results');
+const modrinthInstalledMods = document.getElementById('modrinth-installed-mods');
+const modrinthPackSearch = document.getElementById('modrinth-pack-search');
+const modrinthPackSearchButton = document.getElementById('modrinth-pack-search-button');
+const modrinthPackStatus = document.getElementById('modrinth-pack-status');
+const modrinthPackResults = document.getElementById('modrinth-pack-results');
+const modrinthPackVersionFilter = document.getElementById('modrinth-pack-version-filter');
+const modrinthPackLoaderFilter = document.getElementById('modrinth-pack-loader-filter');
+const modrinthContentType = document.getElementById('modrinth-content-type');
+const modrinthContentSearch = document.getElementById('modrinth-content-search');
+const modrinthContentSearchButton = document.getElementById('modrinth-content-search-button');
+const modrinthContentStatus = document.getElementById('modrinth-content-status');
+const modrinthContentResults = document.getElementById('modrinth-content-results');
+const modrinthImportRef = document.getElementById('modrinth-import-ref');
+const modrinthImportButton = document.getElementById('modrinth-import-button');
+const modrinthImportStatus = document.getElementById('modrinth-import-status');
+const microsoftLoginButton = document.getElementById('microsoft-login-button');
+const importExistingInstanceButton = document.getElementById('import-existing-instance');
+const importMrpackButton = document.getElementById('import-mrpack');
+const checkModrinthUpdatesButton = document.getElementById('check-modrinth-updates');
+const serverBuildSearch = document.getElementById('server-build-search');
+const serverBuildResults = document.getElementById('server-build-results');
+const skinLookupNick = document.getElementById('skin-lookup-nick');
+const skinLookupStatus = document.getElementById('skin-lookup-status');
+const infoLauncherVersion = document.getElementById('info-launcher-version');
+const infoServerSupport = document.getElementById('info-server-support');
+const infoProfileName = document.getElementById('info-profile-name');
 const imageIds = new WeakMap();
 let nextImageId = 1;
+const customSelects = new WeakMap();
+let customSelectDocumentEventsInstalled = false;
 
 const fields = {
   loginNick: document.getElementById('login-nick'),
   loginPassword: document.getElementById('login-password'),
   loginTotp: document.getElementById('login-totp'),
+  guestNick: document.getElementById('guest-nick'),
   registerNick: document.getElementById('register-nick'),
   registerPassword: document.getElementById('register-password'),
   registerTotp: document.getElementById('register-totp'),
   memoryMax: document.getElementById('memory-max'),
   memoryMaxLabel: document.getElementById('memory-max-label'),
+  activeInstance: document.getElementById('active-instance'),
+  instanceName: document.getElementById('instance-name'),
+  instanceVersion: document.getElementById('instance-version'),
+  instanceLoader: document.getElementById('instance-loader'),
+  packFilterVersion: document.getElementById('modrinth-pack-version-filter'),
+  packFilterLoader: document.getElementById('modrinth-pack-loader-filter'),
   minecraftVersion: document.getElementById('minecraft-version'),
+  projectId: document.getElementById('project-id'),
+  buildProfile: document.getElementById('build-profile'),
   fabricLoaderVersion: document.getElementById('fabric-loader-version'),
   javaPath: document.getElementById('java-path'),
   skinPreview: document.getElementById('skin-preview'),
@@ -56,8 +143,12 @@ const fields = {
   capePreview: document.getElementById('cape-preview'),
   capeName: document.getElementById('cape-name'),
   hideLauncherDuringGame: document.getElementById('hide-launcher-during-game'),
+  useUniqueMods: document.getElementById('use-unique-mods'),
   profileYoutube: document.getElementById('profile-youtube'),
-  profileTwitch: document.getElementById('profile-twitch')
+  profileTwitch: document.getElementById('profile-twitch'),
+  appearanceTheme: document.getElementById('appearance-theme'),
+  accentColor: document.getElementById('accent-color'),
+  reduceMotion: document.getElementById('reduce-motion')
 };
 
 let activeUser = null;
@@ -68,9 +159,21 @@ let launchActive = false;
 let spaceAnimationFrame = null;
 let spotifyRefreshTimer = null;
 let spotifyProgressTimer = null;
+let serverRegistryRefreshTimer = null;
+let apiHealthRefreshTimer = null;
 let spotifyPlayback = null;
 let spotifyRefreshInFlight = false;
+let buildProfileOptions = [];
+let buildInstances = [];
+let modrinthTags = null;
+let pendingModDeleteTimers = new Map();
+let registeredServers = [];
+let avatarRenderRequest = 0;
+let spaceAccentRgb = '124, 58, 237';
+let spaceAccent2Rgb = '167, 139, 250';
 const SPOTIFY_REFRESH_INTERVAL_MS = 2500;
+const SERVER_REGISTRY_REFRESH_INTERVAL_MS = 60000;
+const API_HEALTH_REFRESH_INTERVAL_MS = 30000;
 const playerPreview = {
   yaw: -0.45,
   pitch: 0.12,
@@ -105,6 +208,9 @@ const SVG_ICONS = {
   folder: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   java: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 18h8"/><path d="M10 22h4"/><path d="M7 14h10a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3z"/><path d="M12 2c2 2-2 3 0 5s-2 3 0 5"/></svg>',
   save: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l2 2v16H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>',
+  download: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+  report: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6"/><path d="M10 17h4"/></svg>',
+  catalog: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>',
   link: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1"/></svg>',
   music: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>',
   trash: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M7 7l1 14h8l1-14"/></svg>'
@@ -131,8 +237,19 @@ function prependTileIcon(button, iconName) {
 }
 
 function installSvgIcons() {
+  setButtonIconText(document.getElementById('open-user-mods'), 'folder', document.getElementById('open-user-mods')?.textContent || 'User mods');
+  setButtonIconText(document.getElementById('open-user-mods-panel'), 'folder', document.getElementById('open-user-mods-panel')?.textContent || 'Open folder');
+  setButtonIconText(document.getElementById('refresh-mods-panel'), 'refresh', document.getElementById('refresh-mods-panel')?.textContent || 'Refresh');
+  setButtonIconText(document.getElementById('modrinth-mod-search-button'), 'download', document.getElementById('modrinth-mod-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-pack-search-button'), 'catalog', document.getElementById('modrinth-pack-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-content-search-button'), 'catalog', document.getElementById('modrinth-content-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-import-button'), 'download', document.getElementById('modrinth-import-button')?.textContent || 'Import');
+  setButtonIconText(document.getElementById('refresh-instances'), 'refresh', document.getElementById('refresh-instances')?.textContent || 'Обновить');
+  setButtonIconText(document.getElementById('create-instance'), 'catalog', document.getElementById('create-instance')?.textContent || 'Создать сборку');
   setButtonIconText(document.getElementById('logout-button'), 'logout', document.getElementById('logout-button')?.textContent || 'Выйти');
   setButtonIconText(document.getElementById('refresh-mods'), 'refresh', document.getElementById('refresh-mods')?.textContent || 'Обновить');
+  setButtonIconText(document.getElementById('refresh-content'), 'refresh', document.getElementById('refresh-content')?.textContent || 'Обновить');
+  setButtonIconText(document.getElementById('open-build-library'), 'catalog', document.getElementById('open-build-library')?.textContent || 'Каталог сборок');
   setButtonIconText(document.getElementById('select-java'), 'java', document.getElementById('select-java')?.textContent || 'Выбрать');
   setButtonIconText(document.getElementById('choose-wallpaper'), 'folder', document.getElementById('choose-wallpaper')?.textContent || 'Выбрать PNG/JPG');
   setButtonIconText(document.getElementById('save-profile-links'), 'save', document.getElementById('save-profile-links')?.textContent || 'Сохранить профиль');
@@ -140,19 +257,166 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('refresh-spotify'), 'refresh', document.getElementById('refresh-spotify')?.textContent || 'Обновить');
   setButtonIconText(document.getElementById('disconnect-spotify'), 'link', document.getElementById('disconnect-spotify')?.textContent || 'Отключить');
   setButtonIconText(document.getElementById('clear-log'), 'trash', document.getElementById('clear-log')?.textContent || 'Очистить');
+  setButtonIconText(document.getElementById('check-updates'), 'refresh', document.getElementById('check-updates')?.textContent || 'Проверить');
+  setButtonIconText(document.getElementById('install-update'), 'download', document.getElementById('install-update')?.textContent || 'Установить');
+  setButtonIconText(document.getElementById('open-logs'), 'folder', document.getElementById('open-logs')?.textContent || 'Открыть логи');
+  setButtonIconText(document.getElementById('export-diagnostics'), 'report', document.getElementById('export-diagnostics')?.textContent || 'Собрать ZIP');
+  setButtonIconText(document.getElementById('analyze-crash'), 'report', document.getElementById('analyze-crash')?.textContent || 'Анализ краша');
+  setButtonIconText(document.getElementById('repair-game'), 'refresh', document.getElementById('repair-game')?.textContent || 'Починить игру');
   setButtonIconText(launchButton, 'play', launchButton?.textContent || 'Запустить Fabric');
   prependTileIcon(document.getElementById('select-skin'), 'skin');
   prependTileIcon(document.getElementById('select-cape'), 'cape');
 }
 
+function closeCustomSelects(except = null) {
+  document.querySelectorAll('.custom-select.is-open').forEach((wrapper) => {
+    if (wrapper !== except) {
+      wrapper.classList.remove('is-open');
+      wrapper.querySelector('.custom-select-button')?.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+function getSelectLabel(select) {
+  const option = select.options[select.selectedIndex];
+  return option?.textContent?.trim() || select.value || 'Выбрать';
+}
+
+function syncCustomSelect(select) {
+  const state = customSelects.get(select);
+  if (!state) return;
+
+  state.value.textContent = getSelectLabel(select);
+  state.button.disabled = select.disabled;
+  state.wrapper.classList.toggle('is-disabled', select.disabled);
+  state.menu.textContent = '';
+
+  Array.from(select.options).forEach((option) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'custom-select-option';
+    item.dataset.value = option.value;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+    item.classList.toggle('is-selected', option.selected);
+    item.textContent = option.textContent || option.value;
+    item.disabled = option.disabled;
+    item.addEventListener('click', () => {
+      if (option.disabled) return;
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      closeCustomSelects();
+      syncCustomSelect(select);
+      state.button.focus();
+    });
+    state.menu.appendChild(item);
+  });
+}
+
+function openCustomSelect(select) {
+  const state = customSelects.get(select);
+  if (!state || select.disabled) return;
+
+  const open = !state.wrapper.classList.contains('is-open');
+  closeCustomSelects(open ? state.wrapper : null);
+  state.wrapper.classList.toggle('is-open', open);
+  state.button.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+  if (open) {
+    const selected = state.menu.querySelector('.custom-select-option.is-selected') || state.menu.querySelector('.custom-select-option');
+    selected?.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function enhanceCustomSelect(select) {
+  if (!select || customSelects.has(select)) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'custom-select';
+  wrapper.dataset.selectId = select.id || '';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'custom-select-button';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+  button.innerHTML = `
+    <span class="custom-select-value"></span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+  `;
+
+  const menu = document.createElement('div');
+  menu.className = 'custom-select-menu';
+  menu.setAttribute('role', 'listbox');
+
+  wrapper.append(button, menu);
+  select.classList.add('native-select-hidden');
+  select.insertAdjacentElement('afterend', wrapper);
+
+  const state = {
+    wrapper,
+    button,
+    menu,
+    value: button.querySelector('.custom-select-value')
+  };
+  customSelects.set(select, state);
+
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openCustomSelect(select);
+  });
+  button.addEventListener('keydown', (event) => {
+    if (['Enter', ' ', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault();
+      openCustomSelect(select);
+    }
+  });
+  menu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeCustomSelects();
+      button.focus();
+    }
+  });
+  select.addEventListener('change', () => syncCustomSelect(select));
+
+  const observer = new MutationObserver(() => syncCustomSelect(select));
+  observer.observe(select, { childList: true, subtree: true, attributes: true });
+
+  syncCustomSelect(select);
+}
+
+function syncAllCustomSelects() {
+  document.querySelectorAll('select').forEach(syncCustomSelect);
+}
+
+function setupCustomSelects() {
+  document.querySelectorAll('select').forEach(enhanceCustomSelect);
+
+  if (customSelectDocumentEventsInstalled) return;
+  customSelectDocumentEventsInstalled = true;
+  document.addEventListener('click', () => closeCustomSelects());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeCustomSelects();
+      closeBuildLibrary();
+    }
+  });
+}
+
 function setAuthMode(mode) {
   const isLogin = mode === 'login';
+  const isRegister = mode === 'register';
+  const isGuest = mode === 'guest';
   loginForm.classList.toggle('hidden', !isLogin);
-  registerForm.classList.toggle('hidden', isLogin);
+  registerForm.classList.toggle('hidden', !isRegister);
+  guestForm?.classList.toggle('hidden', !isGuest);
   loginTab.classList.toggle('active', isLogin);
-  registerTab.classList.toggle('active', !isLogin);
+  registerTab.classList.toggle('active', isRegister);
+  guestTab?.classList.toggle('active', isGuest);
   loginMessage.textContent = '';
   registerMessage.textContent = '';
+  if (guestMessage) guestMessage.textContent = '';
   totpHint.textContent = '';
 }
 
@@ -189,7 +453,7 @@ function prepareLauncherSections() {
 }
 
 function setLauncherSection(section = 'main') {
-  const allowed = new Set(['main', 'settings', 'profile']);
+  const allowed = new Set(['main', 'library', 'mods', 'settings', 'profile']);
   const activeSection = allowed.has(section) ? section : 'main';
   launcherScreen.dataset.activeSection = activeSection;
 
@@ -202,6 +466,532 @@ function setLauncherSection(section = 'main') {
   if (activeSection === 'profile') {
     requestAnimationFrame(drawPlayerPreview);
     refreshSpotifyNowPlaying();
+  }
+  if (activeSection === 'mods') {
+    refreshMods();
+  }
+  if (activeSection === 'library') {
+    renderServerBuildResults();
+  }
+}
+
+function setSettingsTab(tab = 'info') {
+  const allowed = new Set(['info', 'game', 'technical', 'debug']);
+  const activeTab = allowed.has(tab) ? tab : 'info';
+
+  settingsTabs.forEach((button) => {
+    const active = button.dataset.settingsTab === activeTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+
+  settingsGroups.forEach((group) => {
+    group.classList.toggle('hidden', group.dataset.settingsGroup !== activeTab);
+  });
+}
+
+function getCravatarUrl(nickname, size = 96) {
+  const safeNickname = encodeURIComponent(String(nickname || 'Steve').trim() || 'Steve');
+  return `https://cravatar.eu/helmhead/${safeNickname}/${size}.png`;
+}
+
+function getAvatarFallbackUrl(nickname, size = 96) {
+  const safeNickname = encodeURIComponent(String(nickname || 'Steve').trim() || 'Steve');
+  return `https://minotar.net/helm/${safeNickname}/${size}.png`;
+}
+
+function setAvatarImage(image, nickname = '', size = 96) {
+  if (!image) return;
+
+  const displayName = String(nickname || '').trim();
+  const skinName = displayName && displayName !== 'offline' ? displayName : 'Steve';
+  image.alt = displayName ? `${displayName} skin head` : '';
+  image.decoding = 'async';
+  image.referrerPolicy = 'no-referrer';
+  image.classList.remove('is-empty');
+  image.dataset.fallbackSrc = getAvatarFallbackUrl(skinName, size);
+  image.onerror = () => {
+    const fallback = image.dataset.fallbackSrc;
+    if (fallback) {
+      image.dataset.fallbackSrc = '';
+      image.src = fallback;
+      return;
+    }
+    image.classList.add('is-empty');
+    image.removeAttribute('src');
+  };
+  image.onload = () => image.classList.remove('is-empty');
+  image.src = getCravatarUrl(skinName, size);
+}
+
+function setAvatarImageSource(image, source, nickname = '') {
+  if (!image || !source) return;
+
+  const displayName = String(nickname || '').trim();
+  image.alt = displayName ? `${displayName} skin head` : '';
+  image.decoding = 'async';
+  image.referrerPolicy = 'no-referrer';
+  image.dataset.fallbackSrc = '';
+  image.onerror = () => {
+    image.classList.add('is-empty');
+    image.removeAttribute('src');
+  };
+  image.onload = () => image.classList.remove('is-empty');
+  image.classList.remove('is-empty');
+  image.src = source;
+}
+
+async function createSkinHeadDataUrl(filePath, size = 128) {
+  const image = await loadPreviewImage(filePath);
+  if (!image) return '';
+
+  const sourceWidth = image.naturalWidth || image.width || 0;
+  const sourceHeight = image.naturalHeight || image.height || 0;
+  const scale = sourceWidth / 64;
+  if (!sourceWidth || !sourceHeight || sourceWidth < 64 || sourceHeight < 16 * scale) {
+    return '';
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { alpha: true });
+  ctx.imageSmoothingEnabled = false;
+
+  const drawSkinRegion = (x, y, width, height) => {
+    const sx = Math.round(x * scale);
+    const sy = Math.round(y * scale);
+    const sw = Math.max(1, Math.round(width * scale));
+    const sh = Math.max(1, Math.round(height * scale));
+    if (sx + sw <= sourceWidth && sy + sh <= sourceHeight) {
+      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, size, size);
+    }
+  };
+
+  drawSkinRegion(8, 8, 8, 8);
+  drawSkinRegion(40, 8, 8, 8);
+  return canvas.toDataURL('image/png');
+}
+
+async function refreshUserHeadAvatar() {
+  const requestId = ++avatarRenderRequest;
+  const nickname = activeUser?.nickname || activeUserName?.textContent || '';
+  const skinPath = currentSettings?.skin;
+
+  if (!skinPath) {
+    setAvatarImage(activeUserAvatar, nickname, 96);
+    setAvatarImage(accountAvatar, nickname, 128);
+    setAvatarImage(profileMainAvatar, nickname, 128);
+    return;
+  }
+
+  try {
+    const head = await createSkinHeadDataUrl(skinPath, 128);
+    if (requestId !== avatarRenderRequest) return;
+
+    if (head) {
+      setAvatarImageSource(activeUserAvatar, head, nickname);
+      setAvatarImageSource(accountAvatar, head, nickname);
+      setAvatarImageSource(profileMainAvatar, head, nickname);
+      return;
+    }
+  } catch (err) {
+    // Nickname avatar remains the fallback when the selected PNG cannot be decoded.
+  }
+
+  if (requestId === avatarRenderRequest) {
+    setAvatarImage(activeUserAvatar, nickname, 96);
+    setAvatarImage(accountAvatar, nickname, 128);
+    setAvatarImage(profileMainAvatar, nickname, 128);
+  }
+}
+
+function updateUserIdentity(nickname = '') {
+  const name = String(nickname || 'offline').trim() || 'offline';
+
+  if (activeUserName) activeUserName.textContent = name;
+  setAvatarImage(activeUserAvatar, name, 96);
+  if (accountName) accountName.textContent = name;
+  setAvatarImage(accountAvatar, name, 128);
+  if (profileMainName) profileMainName.textContent = name;
+  setAvatarImage(profileMainAvatar, name, 128);
+  if (profileModeLabel) profileModeLabel.textContent = activeUser?.guest ? 'Guest profile' : activeUser?.license ? 'Minecraft license' : 'UNIQUE account';
+  if (infoProfileName) infoProfileName.textContent = name;
+  refreshUserHeadAvatar();
+}
+
+function renderInfoPanel() {
+  if (infoLauncherVersion) {
+    infoLauncherVersion.textContent = `UNIQUE ${systemInfo?.appVersion || '1.1.1'}`;
+  }
+  if (infoServerSupport) {
+    infoServerSupport.textContent = registeredServers.length
+      ? `${registeredServers.length} серверов поддерживают лаунчер`
+      : 'серверы ожидаются через API';
+  }
+  if (infoProfileName) {
+    infoProfileName.textContent = activeUser?.nickname || 'offline';
+  }
+}
+
+function renderServerBuildResults() {
+  if (!serverBuildResults) return;
+
+  const query = String(serverBuildSearch?.value || '').trim().toLowerCase();
+  const servers = registeredServers.length ? registeredServers : [];
+  const profiles = buildProfileOptions.length ? buildProfileOptions : [
+    { id: fields.buildProfile?.value || 'normal', name: 'Normal', description: 'Default profile', memoryMaxMb: currentSettings?.memory?.max || 4096 }
+  ];
+  const rows = [];
+
+  for (const server of servers) {
+    for (const profile of profiles) {
+      const haystack = [
+        server.name,
+        server.motd,
+        server.host,
+        profile.name,
+        profile.id,
+        profile.description,
+        fields.minecraftVersion?.value || currentSettings?.minecraftVersion || '1.20.1'
+      ].join(' ').toLowerCase();
+      if (query && !haystack.includes(query)) continue;
+      rows.push({ server, profile });
+    }
+  }
+
+  if (!rows.length) {
+    serverBuildResults.innerHTML = '<div class="empty-row">Поддерживаемые серверы или сборки не найдены.</div>';
+    renderInfoPanel();
+    return;
+  }
+
+  serverBuildResults.innerHTML = rows.slice(0, 8).map(({ server, profile }) => {
+    const address = formatServerAddress(server);
+    const selected = profile.id === (fields.buildProfile?.value || currentSettings?.buildProfile);
+    return `
+      <article class="server-build-card">
+        <div class="server-build-icon">${escapeHtml(String(profile.name || 'U').slice(0, 1).toUpperCase())}</div>
+        <div>
+          <strong>${escapeHtml(server.name || 'UNIQUE Server')}</strong>
+          <span>${escapeHtml(profile.name || profile.id || 'Сборка')} · ${escapeHtml(fields.minecraftVersion?.value || currentSettings?.minecraftVersion || '1.20.1')}</span>
+          <small>${escapeHtml(server.motd || address || 'сервер поддерживает UNIQUE LAUNCHER')}</small>
+        </div>
+        <div class="server-build-meta">
+          <span>${Number(server.playerCount || 0)}/${Number(server.maxPlayers || 0) || '?'}</span>
+          <span>${server.tps == null ? 'TPS n/a' : `${Number(server.tps).toFixed(1)} TPS`}</span>
+        </div>
+        <button class="tiny-button server-build-select" type="button" data-build-id="${escapeHtml(profile.id)}">
+          ${selected ? 'Выбрано' : 'Выбрать'}
+        </button>
+      </article>
+    `;
+  }).join('');
+  renderInfoPanel();
+}
+
+function getBuildProfileTitle(profile) {
+  return profile?.name || profile?.id || 'Сборка';
+}
+
+function getBuildProfileDescription(profile) {
+  return profile?.description || 'Готовая конфигурация модов и настроек для проекта.';
+}
+
+function renderBuildCatalog() {
+  if (buildLibraryGrid) {
+    buildLibraryGrid.innerHTML = '';
+  }
+  return;
+}
+
+function getActiveBuildInstance() {
+  const id = fields.activeInstance?.value || currentSettings?.activeInstanceId || '';
+  return buildInstances.find((instance) => instance.id === id) || null;
+}
+
+function getSelectedModLoader() {
+  const instance = getActiveBuildInstance();
+  return (instance?.loader || currentSettings?.modLoader || fields.instanceLoader?.value || 'fabric').toLowerCase();
+}
+
+function getSelectedPackVersion() {
+  return (fields.packFilterVersion?.value || fields.instanceVersion?.value || currentSettings?.minecraftVersion || '1.20.1').trim();
+}
+
+function getSelectedPackLoader() {
+  return (fields.packFilterLoader?.value || fields.instanceLoader?.value || 'fabric').toLowerCase();
+}
+
+function formatLoaderName(loader) {
+  const normalized = String(loader || 'fabric').toLowerCase();
+  if (normalized === 'neoforge') return 'NeoForge';
+  if (normalized === 'quilt') return 'Quilt';
+  if (normalized === 'forge') return 'Forge';
+  if (normalized === 'vanilla') return 'Vanilla';
+  return 'Fabric';
+}
+
+function normalizeModrinthProjectType(type) {
+  const normalized = String(type || '').trim().toLowerCase().replace(/[_\s-]+/g, '');
+  if (normalized === 'modpack' || normalized === 'modpacks') return 'modpack';
+  if (normalized === 'resourcepack' || normalized === 'resourcepacks') return 'resourcepack';
+  if (normalized === 'shader' || normalized === 'shaderpacks') return 'shader';
+  return 'mod';
+}
+
+function formatModrinthProjectType(type) {
+  const normalized = normalizeModrinthProjectType(type);
+  if (normalized === 'modpack') return 'Modpack';
+  if (normalized === 'resourcepack') return 'Resource pack';
+  if (normalized === 'shader') return 'Shader';
+  return 'Mod';
+}
+
+function getSelectedContentType() {
+  return normalizeModrinthProjectType(modrinthContentType?.value || 'resourcepack');
+}
+
+function updateModrinthLoaderLabels() {
+  if (modrinthModLoaderLabel) modrinthModLoaderLabel.textContent = formatLoaderName(getSelectedModLoader());
+  if (modrinthPackLoaderLabel) modrinthPackLoaderLabel.textContent = formatLoaderName(getSelectedPackLoader());
+}
+
+function renderActiveInstanceSelect() {
+  if (!fields.activeInstance) return;
+  const selected = currentSettings?.activeInstanceId || '';
+  fields.activeInstance.textContent = '';
+
+  if (!buildInstances.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Создать сборку';
+    fields.activeInstance.appendChild(option);
+    fields.activeInstance.value = '';
+    syncCustomSelect(fields.activeInstance);
+    updateModrinthLoaderLabels();
+    return;
+  }
+
+  for (const instance of buildInstances) {
+    const option = document.createElement('option');
+    option.value = instance.id;
+    option.textContent = `${instance.name} · ${instance.minecraftVersion} · ${formatLoaderName(instance.loader)}`;
+    fields.activeInstance.appendChild(option);
+  }
+
+  fields.activeInstance.value = buildInstances.some((instance) => instance.id === selected)
+    ? selected
+    : buildInstances[0].id;
+  syncCustomSelect(fields.activeInstance);
+  updateModrinthLoaderLabels();
+}
+
+function renderInstanceList() {
+  if (!instanceList) return;
+
+  if (!buildInstances.length) {
+    instanceList.innerHTML = '<div class="empty-row instance-empty">Сборок пока нет. Создай локальную сборку или установи Modrinth pack.</div>';
+    return;
+  }
+
+  const activeId = currentSettings?.activeInstanceId || fields.activeInstance?.value || '';
+  instanceList.innerHTML = buildInstances.map((instance) => {
+    const active = instance.id === activeId;
+    const source = instance.source === 'modrinth' ? 'Modrinth' : instance.source === 'server' ? 'Server' : instance.source === 'imported' ? 'Imported' : 'Custom';
+    return `
+      <article class="instance-card ${active ? 'active' : ''}">
+        <div class="instance-icon">${escapeHtml(String(instance.name || 'U').slice(0, 2).toUpperCase())}</div>
+        <div>
+          <strong>${escapeHtml(instance.name)}</strong>
+          <span>${escapeHtml(instance.minecraftVersion)} · ${escapeHtml(formatLoaderName(instance.loader))} · ${escapeHtml(source)}</span>
+        </div>
+        <button class="tiny-button instance-select" type="button" data-instance-id="${escapeHtml(instance.id)}">
+          ${active ? 'Выбрано' : 'Выбрать'}
+        </button>
+      </article>
+    `;
+  }).join('');
+}
+
+async function loadBuildInstances() {
+  if (!window.api.listBuildInstances) return;
+  const result = await window.api.listBuildInstances({ nickname: activeUser?.nickname || '' });
+  if (!result.success) {
+    buildInstances = [];
+    renderActiveInstanceSelect();
+    renderInstanceList();
+    return;
+  }
+
+  buildInstances = result.instances || [];
+  if (result.activeInstanceId && currentSettings) {
+    currentSettings.activeInstanceId = result.activeInstanceId;
+  }
+  if (!currentSettings?.activeInstanceId && buildInstances.length && window.api.selectBuildInstance) {
+    const selected = await window.api.selectBuildInstance({
+      nickname: activeUser?.nickname || '',
+      instanceId: buildInstances[0].id
+    });
+    if (selected.success) {
+      currentSettings = selected.settings || currentSettings;
+      buildInstances = selected.instances || buildInstances;
+    }
+  }
+  renderActiveInstanceSelect();
+  renderInstanceList();
+  updateModrinthLoaderLabels();
+}
+
+async function selectBuildInstance(instanceId) {
+  if (!instanceId) {
+    setLauncherSection('library');
+    return;
+  }
+
+  const result = await window.api.selectBuildInstance({
+    nickname: activeUser?.nickname || '',
+    instanceId
+  });
+  if (!result.success) {
+    if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Не удалось выбрать сборку.';
+    return;
+  }
+
+  currentSettings = result.settings || currentSettings;
+  buildInstances = result.instances || buildInstances;
+  applySettingsToUi();
+  renderActiveInstanceSelect();
+  renderInstanceList();
+  await refreshMods();
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Выбрана сборка ${result.instance?.name || ''}.`;
+}
+
+async function createBuildInstance() {
+  const minecraftVersion = fields.instanceVersion?.value || fields.minecraftVersion?.value || '1.20.1';
+  const loader = fields.instanceLoader?.value || 'fabric';
+  const result = await window.api.createBuildInstance({
+    nickname: activeUser?.nickname || '',
+    name: fields.instanceName?.value || '',
+    minecraftVersion,
+    loader,
+    source: 'custom'
+  });
+
+  if (!result.success) {
+    if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Не удалось создать сборку.';
+    return;
+  }
+
+  currentSettings = result.settings || currentSettings;
+  buildInstances = result.instances || [];
+  if (fields.instanceName) fields.instanceName.value = '';
+  applySettingsToUi();
+  renderActiveInstanceSelect();
+  renderInstanceList();
+  await refreshMods();
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Сборка ${result.instance?.name || ''} создана и выбрана.`;
+}
+
+async function importExistingInstance() {
+  if (!window.api.chooseDirectory || !window.api.importExistingBuildInstance) return;
+  const folder = await window.api.chooseDirectory();
+  if (!folder) return;
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Importing ${folder.name}...`;
+  const result = await window.api.importExistingBuildInstance({
+    nickname: activeUser?.nickname || '',
+    sourcePath: folder.path,
+    name: folder.name
+  });
+  if (!result.success) {
+    if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Import failed.';
+    return;
+  }
+  currentSettings = result.settings || currentSettings;
+  buildInstances = result.instances || [];
+  applySettingsToUi();
+  renderActiveInstanceSelect();
+  renderInstanceList();
+  await refreshMods();
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Imported ${result.instance?.name || folder.name}.`;
+}
+
+async function importMrpack() {
+  if (!window.api.chooseFile || !window.api.importModrinthModpack) return;
+  const file = await window.api.chooseFile({ filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] });
+  if (!file) return;
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Importing ${file.name}...`;
+  const result = await window.api.importModrinthModpack({
+    nickname: activeUser?.nickname || '',
+    filePath: file.path,
+    name: file.name.replace(/\.mrpack$/i, ''),
+    minecraftVersion: getSelectedPackVersion(),
+    loader: getSelectedPackLoader()
+  });
+  if (!result.success) {
+    if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Modrinth import failed.';
+    return;
+  }
+  if (result.instance) {
+    currentSettings.activeInstanceId = result.instance.id;
+    currentSettings.modLoader = result.instance.loader || result.loader || getSelectedPackLoader();
+    await loadBuildInstances();
+  }
+  await saveSettings({
+    minecraftVersion: result.minecraftVersion || getSelectedPackVersion(),
+    activeInstanceId: result.instance?.id || currentSettings?.activeInstanceId || '',
+    modLoader: result.loader || currentSettings?.modLoader || 'fabric',
+    loaderVersion: result.loaderVersion || currentSettings?.loaderVersion || 'latest',
+    fabricLoaderVersion: result.fabricLoaderVersion || fields.fabricLoaderVersion?.value || 'latest',
+    forgeVersion: result.forgeVersion || currentSettings?.forgeVersion || 'latest',
+    neoforgeVersion: result.neoforgeVersion || currentSettings?.neoforgeVersion || 'latest',
+    quiltLoaderVersion: result.quiltLoaderVersion || currentSettings?.quiltLoaderVersion || 'latest'
+  });
+  await refreshMods();
+  if (buildLibraryStatus) buildLibraryStatus.textContent = `Imported ${result.packName || file.name}. Files: ${result.installedCount || 0}.`;
+}
+
+function openBuildLibrary() {
+  renderBuildCatalog();
+  renderInstanceList();
+  setLauncherSection('library');
+}
+
+function closeBuildLibrary() {
+  if (launcherScreen?.dataset.activeSection === 'library') {
+    setLauncherSection('main');
+  }
+}
+
+async function selectBuildProfile(profileId, fromCatalog = false) {
+  if (!fields.buildProfile || !profileId) return;
+
+  fields.buildProfile.value = profileId;
+  syncCustomSelect(fields.buildProfile);
+  applyBuildProfileMemory(profileId);
+  await saveSettings({ buildProfile: profileId });
+  if (fromCatalog && buildLibraryStatus) {
+    const profile = buildProfileOptions.find((entry) => entry.id === profileId);
+    buildLibraryStatus.textContent = `Скачиваю ${getBuildProfileTitle(profile)}...`;
+  }
+  if (fromCatalog && window.api.installBuildProfile) {
+    const result = await window.api.installBuildProfile({
+      nickname: activeUser?.nickname || '',
+      minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1',
+      buildProfile: profileId
+    });
+    if (!result.success) {
+      if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Не удалось скачать сборку.';
+      return;
+    }
+  }
+  await refreshMods();
+  updateLaunchInsights();
+  renderBuildCatalog();
+
+  if (fromCatalog && buildLibraryStatus) {
+    const profile = buildProfileOptions.find((entry) => entry.id === profileId);
+    buildLibraryStatus.textContent = `${getBuildProfileTitle(profile)} подготовлена. Можно запускать игру.`;
   }
 }
 
@@ -731,20 +1521,6 @@ function drawPlayerPreview() {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, 'rgba(17, 24, 39, 0.76)');
-  gradient.addColorStop(1, 'rgba(76, 29, 149, 0.24)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-  for (let x = 18; x < width; x += 18) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  }
-
   const colors = playerPreview.colors;
   const textures = getPlayerTextures();
   const slim = getSelectedSkinModel() === 'slim';
@@ -892,21 +1668,105 @@ async function setWallpaperPreview(filePath) {
   }
 }
 
+function applyAppearance() {
+  const appearance = currentSettings?.appearance || {};
+  const theme = ['cosmic', 'light', 'deep', 'contrast'].includes(appearance.theme) ? appearance.theme : 'cosmic';
+  const accent = ['violet', 'cyan', 'emerald', 'rose'].includes(appearance.accent) ? appearance.accent : 'violet';
+  const reduceMotion = Boolean(appearance.reduceMotion);
+
+  document.body.dataset.theme = theme;
+  document.body.dataset.accent = accent;
+  document.body.classList.toggle('reduce-motion', reduceMotion);
+  const styles = getComputedStyle(document.body);
+  spaceAccentRgb = styles.getPropertyValue('--accent-rgb').trim() || spaceAccentRgb;
+  spaceAccent2Rgb = styles.getPropertyValue('--accent-2-rgb').trim() || spaceAccent2Rgb;
+}
+
 function applySettingsToUi() {
   const memory = currentSettings.memory;
   fields.memoryMax.value = memory.max;
   fields.memoryMaxLabel.textContent = memory.max;
   fields.minecraftVersion.value = currentSettings.minecraftVersion || '1.20.1';
+  if (fields.buildProfile) {
+    fields.buildProfile.value = currentSettings.buildProfile || 'normal';
+  }
+  if (fields.projectId) {
+    fields.projectId.value = currentSettings.projectId || 'unique';
+  }
   fields.fabricLoaderVersion.value = currentSettings.fabricLoaderVersion || 'latest';
+  if (fields.activeInstance) fields.activeInstance.value = currentSettings.activeInstanceId || '';
+  if (fields.instanceVersion) fields.instanceVersion.value = currentSettings.minecraftVersion || '1.20.1';
+  if (fields.instanceLoader) fields.instanceLoader.value = currentSettings.modLoader || 'fabric';
   fields.javaPath.value = currentSettings.javaPath || '';
   fields.skinModel.value = currentSettings.skinModel || 'auto';
+  if (fields.appearanceTheme) fields.appearanceTheme.value = currentSettings.appearance?.theme || 'cosmic';
+  if (fields.accentColor) fields.accentColor.value = currentSettings.appearance?.accent || 'violet';
+  if (fields.reduceMotion) fields.reduceMotion.checked = Boolean(currentSettings.appearance?.reduceMotion);
   versionLabel.textContent = fields.minecraftVersion.value;
-  serverInfo.textContent = `${currentSettings.server.host}:${currentSettings.server.port}`;
+  serverInfo.textContent = currentSettings.server.name || 'UNIQUE Server';
   serverLabel.textContent = currentSettings.server.name;
   fields.hideLauncherDuringGame.checked = Boolean(currentSettings.hideLauncherDuringGame);
+  if (fields.useUniqueMods) fields.useUniqueMods.checked = currentSettings.useUniqueMods !== false;
   wallpaperName.textContent = currentSettings.wallpaper ? shortPath(currentSettings.wallpaper) : 'обои не выбраны';
   fields.skinName.textContent = currentSettings.skin ? shortPath(currentSettings.skin) : 'не выбран';
   fields.capeName.textContent = currentSettings.cape ? shortPath(currentSettings.cape) : 'не выбран';
+  applyAppearance();
+  updateLaunchInsights();
+  syncAllCustomSelects();
+  updateModrinthLoaderLabels();
+  refreshUserHeadAvatar();
+}
+
+function updateLaunchInsights(serverName = '') {
+  if (launchInsights.version) {
+    launchInsights.version.textContent = fields.minecraftVersion?.value?.trim() || currentSettings?.minecraftVersion || '1.20.1';
+  }
+  if (launchInsights.ram) {
+    launchInsights.ram.textContent = `${currentSettings?.memory?.max || fields.memoryMax?.value || 4096} MB`;
+  }
+  if (launchInsights.server) {
+    launchInsights.server.textContent = serverName || serverLabel?.textContent || currentSettings?.server?.name || 'UNIQUE';
+  }
+  if (launchInsights.assets) {
+    const parts = [];
+    if (currentSettings?.skin) parts.push('HD Skin');
+    if (currentSettings?.cape) parts.push(/\.gif$/i.test(currentSettings.cape) ? 'Animated Cape' : 'Cape');
+    launchInsights.assets.textContent = parts.length ? parts.join(' + ') : 'Default';
+  }
+}
+
+function getBuildProfileMemoryMax(profileId) {
+  const id = String(profileId || '').trim();
+  const profile = buildProfileOptions.find((entry) => entry.id === id)
+    || systemInfo?.buildProfiles?.find?.((entry) => entry.id === id);
+  const memory = Number(profile?.memoryMaxMb || 0);
+  return Number.isFinite(memory) && memory > 0 ? memory : 0;
+}
+
+function clampMemoryMax(value) {
+  const min = Number(fields.memoryMax.min || 1024);
+  const max = Number(fields.memoryMax.max || 16384);
+  return Math.max(min, Math.min(max, Number(value) || min));
+}
+
+function applyBuildProfileMemory(profileId) {
+  const profileMemory = getBuildProfileMemoryMax(profileId);
+  if (!profileMemory) return false;
+
+  const nextMemory = clampMemoryMax(profileMemory);
+  fields.memoryMax.value = String(nextMemory);
+  updateMemoryLabels();
+
+  if (currentSettings) {
+    currentSettings.memory = {
+      ...(currentSettings.memory || {}),
+      min: 1024,
+      max: nextMemory
+    };
+  }
+
+  updateLaunchInsights();
+  return true;
 }
 
 async function refreshPreviews() {
@@ -914,7 +1774,8 @@ async function refreshPreviews() {
     setWallpaperPreview(currentSettings.wallpaper),
     setImagePreview(fields.skinPreview, currentSettings.skin),
     setImagePreview(fields.capePreview, currentSettings.cape),
-    refreshPlayerPreviewAssets()
+    refreshPlayerPreviewAssets(),
+    refreshUserHeadAvatar()
   ]);
 }
 
@@ -931,8 +1792,18 @@ async function saveSettings(partial = {}) {
     },
     skinModel: fields.skinModel.value || 'auto',
     minecraftVersion: fields.minecraftVersion.value.trim() || '1.20.1',
+    activeInstanceId: fields.activeInstance?.value || currentSettings?.activeInstanceId || '',
+    modLoader: getSelectedModLoader(),
+    projectId: fields.projectId?.value || currentSettings?.projectId || 'unique',
+    buildProfile: fields.buildProfile?.value || currentSettings?.buildProfile || 'normal',
     javaPath: fields.javaPath.value.trim(),
-    hideLauncherDuringGame: fields.hideLauncherDuringGame.checked
+    hideLauncherDuringGame: fields.hideLauncherDuringGame.checked,
+    useUniqueMods: fields.useUniqueMods ? fields.useUniqueMods.checked : currentSettings?.useUniqueMods !== false,
+    appearance: {
+      theme: fields.appearanceTheme?.value || currentSettings?.appearance?.theme || 'cosmic',
+      accent: fields.accentColor?.value || currentSettings?.appearance?.accent || 'violet',
+      reduceMotion: Boolean(fields.reduceMotion?.checked)
+    }
   };
 
   const result = await window.api.saveSettings({
@@ -946,27 +1817,35 @@ async function saveSettings(partial = {}) {
 }
 
 async function refreshMods() {
-  const result = await window.api.listMods();
-  modsList.innerHTML = '';
+  const result = await window.api.listMods({
+    nickname: activeUser?.nickname || '',
+    minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1',
+    buildProfile: currentSettings?.buildProfile || fields.buildProfile?.value || 'normal'
+  });
+  if (modsList) modsList.innerHTML = '';
+  if (modrinthInstalledMods) modrinthInstalledMods.innerHTML = '';
 
   if (!result.success) {
-    modsList.innerHTML = `<li class="empty-row">Ошибка: ${result.error}</li>`;
+    const errorHtml = `<li class="empty-row">Ошибка: ${escapeHtml(result.error)}</li>`;
+    if (modsList) modsList.innerHTML = errorHtml;
+    if (modrinthInstalledMods) modrinthInstalledMods.innerHTML = errorHtml;
     authModsCount.textContent = '0';
     return;
   }
 
   authModsCount.textContent = String(result.mods.length);
+  if (result.userModsFolder) {
+    modsFolder.textContent = 'Служебные моды UNIQUE проверяются автоматически. Здесь отображаются только пользовательские моды.';
+  }
 
   if (result.mods.length === 0) {
-    modsList.innerHTML = '<li class="empty-row">Папка mods пока пустая</li>';
+    renderInstalledModsList(modsList, []);
+    renderInstalledModsList(modrinthInstalledMods, []);
     return;
   }
 
-  result.mods.forEach((mod) => {
-    const item = document.createElement('li');
-    item.innerHTML = `<span>${mod.name}</span><small>${mod.sizeMb} МБ</small>`;
-    modsList.appendChild(item);
-  });
+  renderInstalledModsList(modsList, result.mods);
+  renderInstalledModsList(modrinthInstalledMods, result.mods);
 }
 
 function formatSpotifyTime(ms) {
@@ -974,6 +1853,834 @@ function formatSpotifyTime(ms) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function renderBuildProfiles(profiles = []) {
+  if (!fields.buildProfile) return;
+  const selected = currentSettings?.buildProfile || fields.buildProfile.value || 'normal';
+  fields.buildProfile.innerHTML = '';
+  const list = profiles.length ? profiles : [
+    { id: 'lite', name: 'Lite', description: 'Low resource profile' },
+    { id: 'normal', name: 'Normal', description: 'Default profile' },
+    { id: 'ultra', name: 'Ultra', description: 'High resource profile' }
+  ];
+  buildProfileOptions = list.map((profile) => ({
+    ...profile,
+    memoryMaxMb: Number(profile.memoryMaxMb || 0)
+  }));
+  for (const profile of buildProfileOptions) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = profile.memoryMaxMb ? `${profile.name} · ${profile.memoryMaxMb} MB` : profile.name;
+    option.title = profile.description || profile.name;
+    fields.buildProfile.appendChild(option);
+  }
+  fields.buildProfile.value = buildProfileOptions.some((profile) => profile.id === selected) ? selected : buildProfileOptions[0].id;
+  syncCustomSelect(fields.buildProfile);
+  renderBuildCatalog();
+  renderServerBuildResults();
+}
+
+function renderProjects(projects = []) {
+  if (!fields.projectId) return;
+  const selected = currentSettings?.projectId || fields.projectId.value || 'unique';
+  fields.projectId.innerHTML = '';
+  const list = projects.length ? projects : [{ id: 'unique', name: 'UNIQUE Server', description: 'Main project' }];
+  for (const project of list) {
+    const option = document.createElement('option');
+    option.value = project.id;
+    option.textContent = project.name;
+    option.title = project.description || project.name;
+    fields.projectId.appendChild(option);
+  }
+  fields.projectId.value = list.some((project) => project.id === selected) ? selected : list[0].id;
+  syncCustomSelect(fields.projectId);
+}
+
+function formatServerAddress(server) {
+  const host = String(server?.host || '').trim();
+  if (!host) return '';
+  const port = Number(server?.port || 25565);
+  return `${host}${port === 25565 ? '' : `:${port}`}`;
+}
+
+function renderRegisteredServers(servers = []) {
+  if (!serverRegistryList) return;
+  const liveServers = servers.filter((server) => server?.host);
+  registeredServers = liveServers;
+
+  if (!liveServers.length) {
+    serverRegistryList.innerHTML = '';
+    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+    renderServerBuildResults();
+    return;
+  }
+
+  const primary = liveServers[0];
+  if (serverInfo) {
+    serverInfo.textContent = primary.name || 'UNIQUE Server';
+  }
+  if (serverLabel) {
+    serverLabel.textContent = primary.name || 'UNIQUE Server';
+  }
+  updateLaunchInsights(primary.name || 'UNIQUE Server');
+
+  serverRegistryList.innerHTML = liveServers.slice(0, 5).map((server, index) => {
+    const address = formatServerAddress(server);
+    const players = `${Number(server.playerCount || 0)}/${Number(server.maxPlayers || 0)}`;
+    const tps = server.tps == null || Number.isNaN(Number(server.tps)) ? '-' : Number(server.tps).toFixed(1);
+    const motd = server.motd ? `<em>${escapeHtml(server.motd)}</em>` : '';
+    return `
+      <div class="server-registry-row ${index === 0 ? 'primary' : ''}">
+        <button class="icon-button server-copy" type="button" data-address="${escapeHtml(address)}" aria-label="Скопировать адрес" title="Скопировать адрес">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h9a1 1 0 0 1 1 1v1" /></svg>
+        </button>
+        <strong>${escapeHtml(server.name || 'UNIQUE Server')}</strong>
+        <span>Сервер проекта</span>
+        <small>${players} игроков · TPS ${tps}</small>
+        ${motd}
+      </div>
+    `;
+  }).join('');
+  setStatusCard(
+    serversHealthCard,
+    serverHealthStatus,
+    serverHealthDetail,
+    'ok',
+    `${liveServers.length} онлайн`,
+    primary.name || 'UNIQUE Server'
+  );
+  renderServerBuildResults();
+}
+
+async function refreshRegisteredServers() {
+  if (!serverRegistryList || !window.api.getRegisteredServers) return;
+
+  try {
+    const result = await window.api.getRegisteredServers({
+      nickname: activeUser?.nickname || '',
+      projectId: currentSettings?.projectId || fields.projectId?.value || 'unique'
+    });
+
+    if (!result?.success) {
+      serverRegistryList.innerHTML = '';
+      setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+      return;
+    }
+
+    renderRegisteredServers(result.servers || []);
+  } catch (err) {
+    serverRegistryList.innerHTML = '';
+    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+  }
+}
+
+function startServerRegistryRefresh() {
+  if (serverRegistryRefreshTimer) {
+    clearInterval(serverRegistryRefreshTimer);
+  }
+  serverRegistryRefreshTimer = setInterval(refreshRegisteredServers, SERVER_REGISTRY_REFRESH_INTERVAL_MS);
+}
+
+function stopServerRegistryRefresh() {
+  if (serverRegistryRefreshTimer) {
+    clearInterval(serverRegistryRefreshTimer);
+    serverRegistryRefreshTimer = null;
+  }
+}
+
+async function copyServerAddress(address) {
+  if (!address) return;
+  await window.api.copyText(address);
+  setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'ok', 'скопировано', 'адрес сервера');
+}
+
+function renderReadiness() {
+  if (!readinessGrid) return;
+  const checks = [
+    { label: 'Java 17+', ok: Boolean(systemInfo?.recommendedJava?.major >= 17), detail: systemInfo?.recommendedJava?.path || 'not found' },
+    { label: 'Remote API', ok: Boolean(systemInfo?.remoteAuth), detail: systemInfo?.remoteAuth ? 'configured' : 'local fallback' },
+    { label: 'Mod manifest', ok: Boolean(systemInfo?.remoteMods), detail: systemInfo?.remoteMods ? 'remote' : 'fallback' },
+    { label: 'Update feed', ok: Boolean(systemInfo?.updateUrlConfigured), detail: systemInfo?.updateUrlConfigured ? 'configured' : 'not configured' }
+  ];
+  const readyCount = checks.filter((check) => check.ok).length;
+  if (readinessStatus) readinessStatus.textContent = `${readyCount}/${checks.length}`;
+  readinessGrid.innerHTML = checks.map((check) => `
+    <div class="readiness-item ${check.ok ? 'ok' : 'warn'}">
+      <strong>${escapeHtml(check.label)}</strong>
+      <span>${escapeHtml(check.detail)}</span>
+    </div>
+  `).join('');
+}
+
+function setStatusCard(card, statusElement, detailElement, state, status, detail) {
+  if (card) {
+    card.dataset.state = state;
+  }
+  if (statusElement) {
+    statusElement.textContent = status;
+  }
+  if (detailElement) {
+    detailElement.textContent = detail;
+  }
+}
+
+function renderCommandCenter() {
+  const java = systemInfo?.recommendedJava;
+  setStatusCard(
+    javaHealthCard,
+    javaHealthStatus,
+    javaHealthDetail,
+    java?.major >= 17 ? 'ok' : 'warn',
+    java?.major ? `Java ${java.major}` : 'не найдена',
+    java?.path || 'требуется Java 17+'
+  );
+
+  const configuredServers = serverRegistryList?.querySelectorAll('.server-registry-row:not(.warn)').length || 0;
+  setStatusCard(
+    serversHealthCard,
+    serverHealthStatus,
+    serverHealthDetail,
+    configuredServers > 0 ? 'ok' : 'idle',
+    configuredServers > 0 ? `${configuredServers} онлайн` : 'API',
+    configuredServers > 0 ? 'серверы в списке Minecraft' : 'ожидание списка'
+  );
+
+  if (launcherBuildLabel) {
+    launcherBuildLabel.textContent = `UNIQUE ${systemInfo?.appVersion || '1.0.0'}`;
+  }
+  if (updateHealthStatus && updateHealthStatus.textContent === '1.0') {
+    updateHealthStatus.textContent = systemInfo?.updateUrlConfigured ? 'готово' : 'выключено';
+  }
+  renderInfoPanel();
+}
+
+async function refreshApiHealth() {
+  if (!window.api.checkApiHealth) return;
+  setStatusCard(apiHealthCard, apiHealthStatus, apiHealthDetail, 'idle', 'проверка', 'UNIQUE API');
+
+  const result = await window.api.checkApiHealth();
+  if (!result.success || !result.ok) {
+    setStatusCard(
+      apiHealthCard,
+      apiHealthStatus,
+      apiHealthDetail,
+      'warn',
+      'недоступен',
+      'соединение недоступно'
+    );
+    return;
+  }
+
+  setStatusCard(
+    apiHealthCard,
+    apiHealthStatus,
+    apiHealthDetail,
+    'ok',
+    `${Math.round(Number(result.latencyMs || 0))} ms`,
+    'UNIQUE API'
+  );
+}
+
+async function rescanJava() {
+  if (!window.api.rescanJava) return;
+  setStatusCard(javaHealthCard, javaHealthStatus, javaHealthDetail, 'idle', 'скан', 'поиск Java');
+
+  const result = await window.api.rescanJava();
+  if (!result.success) {
+    setStatusCard(javaHealthCard, javaHealthStatus, javaHealthDetail, 'warn', 'ошибка', result.error || 'Java scan failed');
+    return;
+  }
+
+  systemInfo = {
+    ...systemInfo,
+    recommendedJava: result.recommendedJava,
+    javaCandidates: result.candidates || []
+  };
+  if (!fields.javaPath.value && result.recommendedJava?.path) {
+    fields.javaPath.value = result.recommendedJava.path;
+    await saveSettings();
+  }
+  renderReadiness();
+  renderCommandCenter();
+}
+
+function startApiHealthRefresh() {
+  if (apiHealthRefreshTimer) {
+    clearInterval(apiHealthRefreshTimer);
+  }
+  apiHealthRefreshTimer = setInterval(refreshApiHealth, API_HEALTH_REFRESH_INTERVAL_MS);
+}
+
+function stopApiHealthRefresh() {
+  if (apiHealthRefreshTimer) {
+    clearInterval(apiHealthRefreshTimer);
+    apiHealthRefreshTimer = null;
+  }
+}
+
+function renderNews(news = []) {
+  if (!newsList) return;
+  newsList.innerHTML = '';
+  if (!news.length) {
+    newsList.innerHTML = '<div class="news-item muted">Новостей пока нет.</div>';
+    return;
+  }
+  for (const item of news.slice(0, 4)) {
+    const card = document.createElement(item.url ? 'a' : 'div');
+    card.className = 'news-item';
+    if (item.url) {
+      card.href = item.url;
+      card.target = '_blank';
+      card.rel = 'noreferrer';
+    }
+    card.innerHTML = `
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${escapeHtml(item.date || '')}</span>
+      <p>${escapeHtml(item.body || '')}</p>
+    `;
+    newsList.appendChild(card);
+  }
+}
+
+async function refreshLauncherContent() {
+  const result = await window.api.getLauncherContent();
+  renderBuildProfiles(result.buildProfiles || systemInfo?.buildProfiles || []);
+  renderProjects(result.projects || systemInfo?.projects || []);
+  renderNews(result.news || systemInfo?.news || []);
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
+
+function formatCompactNumber(value) {
+  const number = Number(value || 0);
+  if (number >= 1000000) return `${(number / 1000000).toFixed(number >= 10000000 ? 0 : 1)}M`;
+  if (number >= 1000) return `${(number / 1000).toFixed(number >= 10000 ? 0 : 1)}K`;
+  return String(number);
+}
+
+function getSelectedMinecraftVersion() {
+  return fields.minecraftVersion?.value?.trim() || currentSettings?.minecraftVersion || '1.20.1';
+}
+
+function setStatusText(element, text, type = '') {
+  if (!element) return;
+  element.textContent = text || '';
+  element.dataset.type = type;
+}
+
+function renderInstalledModsList(target, mods = []) {
+  if (!target) return;
+  target.innerHTML = '';
+  if (!mods.length) {
+    target.innerHTML = '<li class="empty-row">Пользовательские моды не добавлены</li>';
+    return;
+  }
+
+  for (const mod of mods) {
+    const item = document.createElement('li');
+    item.className = mod.enabled === false ? 'disabled-mod' : '';
+    const name = mod.baseName || mod.name;
+    item.innerHTML = `
+      <div class="mod-row-main">
+        <span>${escapeHtml(name)}</span>
+        <small>user | ${escapeHtml(mod.sizeMb)} MB${mod.enabled === false ? ' | disabled' : ''}</small>
+      </div>
+      <div class="mod-row-actions">
+        <button class="mod-toggle ${mod.enabled === false ? '' : 'active'}" type="button" data-mod-name="${escapeHtml(mod.name)}" aria-label="Toggle mod">
+          <span></span>
+        </button>
+        <button class="icon-button mod-delete" type="button" data-mod-name="${escapeHtml(mod.name)}" aria-label="Delete mod" title="Delete mod">
+          ${SVG_ICONS.trash.replace('button-icon', '')}
+        </button>
+      </div>
+    `;
+    target.appendChild(item);
+  }
+}
+
+function renderModrinthProjects(container, projects = [], type = 'mod') {
+  if (!container) return;
+  const projectType = normalizeModrinthProjectType(type);
+  if (!projects.length) {
+    container.innerHTML = '<div class="empty-row">Ничего не найдено.</div>';
+    return;
+  }
+
+  const installClass = projectType === 'modpack'
+    ? 'modrinth-install-pack'
+    : projectType === 'mod'
+      ? 'modrinth-install-mod'
+      : 'modrinth-install-project';
+  const installText = type === 'modpack' ? 'Установить сборку' : 'Установить мод';
+  container.innerHTML = projects.map((project) => {
+    const icon = project.iconUrl
+      ? `<img class="modrinth-card-icon" src="${escapeHtml(project.iconUrl)}" alt="" referrerpolicy="no-referrer" />`
+      : `<div class="modrinth-card-icon fallback">${escapeHtml(String(project.title || 'M').slice(0, 1).toUpperCase())}</div>`;
+    const categories = (project.categories || []).slice(0, 3)
+      .map((category) => `<span>${escapeHtml(category)}</span>`)
+      .join('');
+    return `
+      <article class="modrinth-card">
+        ${icon}
+        <div class="modrinth-card-body">
+          <div>
+            <strong>${escapeHtml(project.title)}</strong>
+            <p>${escapeHtml(project.description)}</p>
+          </div>
+          <div class="modrinth-card-meta">
+            <span>${formatCompactNumber(project.downloads)} downloads</span>
+            <span>${escapeHtml(project.latestVersion || getSelectedMinecraftVersion())}</span>
+            ${categories}
+          </div>
+          <button class="tiny-button ${installClass}" type="button" data-project-id="${escapeHtml(project.id)}" data-project-slug="${escapeHtml(project.slug)}" data-project-type="${escapeHtml(projectType)}">
+            ${projectType === 'resourcepack' ? 'Install resource pack' : projectType === 'shader' ? 'Install shader' : installText}
+          </button>
+          <div class="modrinth-card-actions">
+            <button class="tiny-button modrinth-show-details" type="button" data-project-id="${escapeHtml(project.id)}" data-project-slug="${escapeHtml(project.slug)}" data-project-type="${escapeHtml(projectType)}">Info</button>
+            <button class="tiny-button modrinth-show-versions" type="button" data-project-id="${escapeHtml(project.id)}" data-project-slug="${escapeHtml(project.slug)}" data-project-type="${escapeHtml(projectType)}">Versions</button>
+            <button class="tiny-button modrinth-show-dependencies" type="button" data-project-id="${escapeHtml(project.id)}" data-project-slug="${escapeHtml(project.slug)}" data-project-type="${escapeHtml(projectType)}">Deps</button>
+          </div>
+          <div class="modrinth-card-extra hidden"></div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function setModrinthCardExtra(button, html) {
+  const card = button?.closest('.modrinth-card');
+  const extra = card?.querySelector('.modrinth-card-extra');
+  if (!extra) return;
+  extra.classList.remove('hidden');
+  extra.innerHTML = html;
+}
+
+function getModrinthCardPayload(button) {
+  const type = normalizeModrinthProjectType(button?.dataset.projectType || 'mod');
+  return {
+    projectId: button?.dataset.projectId || button?.dataset.projectSlug || '',
+    slug: button?.dataset.projectSlug || '',
+    type,
+    minecraftVersion: type === 'modpack' ? getSelectedPackVersion() : getSelectedMinecraftVersion(),
+    loader: type === 'modpack' ? getSelectedPackLoader() : getSelectedModLoader()
+  };
+}
+
+async function showModrinthDetails(button) {
+  const payload = getModrinthCardPayload(button);
+  setModrinthCardExtra(button, '<span class="modrinth-extra-loading">Loading project info...</span>');
+  const result = await window.api.getModrinthProject(payload);
+  if (!result.success) {
+    setModrinthCardExtra(button, `<span class="modrinth-extra-error">${escapeHtml(result.error || 'Project info failed.')}</span>`);
+    return;
+  }
+  const project = result.project || {};
+  const links = [
+    project.projectUrl ? `<a href="${escapeHtml(project.projectUrl)}">Modrinth</a>` : '',
+    project.sourceUrl ? `<a href="${escapeHtml(project.sourceUrl)}">Source</a>` : '',
+    project.issuesUrl ? `<a href="${escapeHtml(project.issuesUrl)}">Issues</a>` : '',
+    project.wikiUrl ? `<a href="${escapeHtml(project.wikiUrl)}">Wiki</a>` : '',
+    project.discordUrl ? `<a href="${escapeHtml(project.discordUrl)}">Discord</a>` : ''
+  ].filter(Boolean).join('');
+  setModrinthCardExtra(button, `
+    <div class="modrinth-extra-grid">
+      <span>Downloads: ${formatCompactNumber(project.downloads || 0)}</span>
+      <span>Follows: ${formatCompactNumber(project.follows || 0)}</span>
+      <span>License: ${escapeHtml(project.license || 'unknown')}</span>
+      <span>Client: ${escapeHtml(project.clientSide || 'unknown')}</span>
+      <span>Server: ${escapeHtml(project.serverSide || 'unknown')}</span>
+    </div>
+    <div class="modrinth-extra-links">${links}</div>
+  `);
+}
+
+async function showModrinthVersions(button) {
+  const payload = getModrinthCardPayload(button);
+  const installClass = payload.type === 'modpack'
+    ? 'modrinth-install-pack'
+    : payload.type === 'mod'
+      ? 'modrinth-install-mod'
+      : 'modrinth-install-project';
+  const installText = payload.type === 'modpack'
+    ? 'Install pack version'
+    : payload.type === 'mod'
+      ? 'Install mod version'
+      : `Install ${formatModrinthProjectType(payload.type)} version`;
+  setModrinthCardExtra(button, '<span class="modrinth-extra-loading">Loading versions...</span>');
+  const result = await window.api.getModrinthProjectVersions(payload);
+  if (!result.success) {
+    setModrinthCardExtra(button, `<span class="modrinth-extra-error">${escapeHtml(result.error || 'Versions failed.')}</span>`);
+    return;
+  }
+  const versions = (result.versions || []).slice(0, 8);
+  if (!versions.length) {
+    setModrinthCardExtra(button, '<span class="modrinth-extra-loading">No compatible versions found.</span>');
+    return;
+  }
+  setModrinthCardExtra(button, versions.map((version) => `
+    <div class="modrinth-version-row">
+      <span>
+        <strong>${escapeHtml(version.name || version.versionNumber)}</strong>
+        <small>${escapeHtml(version.versionNumber || '')} | ${escapeHtml(version.versionType || 'release')} | ${formatCompactNumber(version.downloads || 0)} downloads</small>
+      </span>
+      <button class="tiny-button ${installClass}" type="button"
+        data-project-id="${escapeHtml(payload.projectId)}"
+        data-project-slug="${escapeHtml(payload.slug)}"
+        data-project-type="${escapeHtml(payload.type)}"
+        data-version-id="${escapeHtml(version.id)}">
+        ${installText}
+      </button>
+    </div>
+  `).join(''));
+}
+
+async function showModrinthDependencies(button) {
+  const payload = getModrinthCardPayload(button);
+  setModrinthCardExtra(button, '<span class="modrinth-extra-loading">Loading dependency graph...</span>');
+  const result = await window.api.getModrinthProjectDependencies(payload);
+  if (!result.success) {
+    setModrinthCardExtra(button, `<span class="modrinth-extra-error">${escapeHtml(result.error || 'Dependencies failed.')}</span>`);
+    return;
+  }
+  const projects = (result.projects || []).slice(0, 12);
+  const versions = result.versions || [];
+  if (!projects.length && !versions.length) {
+    setModrinthCardExtra(button, '<span class="modrinth-extra-loading">No declared dependencies.</span>');
+    return;
+  }
+  setModrinthCardExtra(button, `
+    <div class="modrinth-extra-grid">
+      ${projects.map((project) => `<span>${escapeHtml(project.title || project.slug)} (${escapeHtml(project.type || 'project')})</span>`).join('')}
+      ${versions.slice(0, 8).map((version) => `<span>${escapeHtml(version.name || version.versionNumber)} (${escapeHtml(version.versionType || 'version')})</span>`).join('')}
+    </div>
+  `);
+}
+
+async function checkModrinthUpdates() {
+  if (!window.api.checkModrinthUpdates) return;
+  setStatusText(modrinthModStatus, 'Checking Modrinth updates...');
+  const result = await window.api.checkModrinthUpdates({
+    nickname: activeUser?.nickname || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    loader: getSelectedModLoader()
+  });
+  if (!result.success) {
+    setStatusText(modrinthModStatus, result.error || 'Modrinth update check failed.', 'error');
+    return;
+  }
+  const updates = result.updates || [];
+  setStatusText(modrinthModStatus, updates.length ? `Modrinth updates found: ${updates.length}.` : 'Installed Modrinth mods are up to date.', 'success');
+}
+
+async function loadModrinthTags() {
+  if (modrinthTags || !window.api.getModrinthTags) return modrinthTags;
+  const result = await window.api.getModrinthTags();
+  if (result.success) {
+    modrinthTags = result;
+  }
+  return modrinthTags;
+}
+
+async function searchModrinthMods() {
+  const loader = getSelectedModLoader();
+  if (loader === 'vanilla') {
+    setStatusText(modrinthModStatus, 'Vanilla-сборка не поддерживает установку client mods.', 'error');
+    renderModrinthProjects(modrinthModResults, []);
+    return;
+  }
+  setStatusText(modrinthModStatus, 'Ищу моды на Modrinth...');
+  const result = await window.api.searchModrinth({
+    type: 'mod',
+    query: modrinthModSearch?.value || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    loader,
+    limit: 16
+  });
+
+  if (!result.success) {
+    setStatusText(modrinthModStatus, result.error || 'Не удалось выполнить поиск Modrinth.', 'error');
+    renderModrinthProjects(modrinthModResults, []);
+    return;
+  }
+
+  renderModrinthProjects(modrinthModResults, result.projects || [], 'mod');
+  setStatusText(modrinthModStatus, `Найдено: ${result.totalHits || result.projects?.length || 0}. Версия: ${getSelectedMinecraftVersion()}.`, 'success');
+}
+
+async function searchModrinthPacks() {
+  const loader = getSelectedPackLoader();
+  if (loader === 'vanilla') {
+    setStatusText(modrinthPackStatus, 'Vanilla modpacks on Modrinth do not use a modloader filter. Select Fabric, Forge, NeoForge or Quilt.', 'error');
+    renderModrinthProjects(modrinthPackResults, [], 'modpack');
+    return;
+  }
+
+  setStatusText(modrinthPackStatus, 'Ищу сборки на Modrinth...');
+  const result = await window.api.searchModrinth({
+    type: 'modpack',
+    query: modrinthPackSearch?.value || '',
+    minecraftVersion: getSelectedPackVersion(),
+    loader,
+    limit: 12
+  });
+
+  if (!result.success) {
+    setStatusText(modrinthPackStatus, result.error || 'Не удалось выполнить поиск сборок Modrinth.', 'error');
+    renderModrinthProjects(modrinthPackResults, [], 'modpack');
+    return;
+  }
+
+  renderModrinthProjects(modrinthPackResults, result.projects || [], 'modpack');
+  setStatusText(modrinthPackStatus, `Найдено сборок: ${result.totalHits || result.projects?.length || 0}.`, 'success');
+}
+
+async function searchModrinthContent() {
+  const type = getSelectedContentType();
+  setStatusText(modrinthContentStatus, `Searching Modrinth ${formatModrinthProjectType(type)}...`);
+  const result = await window.api.searchModrinth({
+    type,
+    query: modrinthContentSearch?.value || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    limit: 16
+  });
+
+  if (!result.success) {
+    setStatusText(modrinthContentStatus, result.error || 'Modrinth content search failed.', 'error');
+    renderModrinthProjects(modrinthContentResults, [], type);
+    return;
+  }
+
+  renderModrinthProjects(modrinthContentResults, result.projects || [], type);
+  setStatusText(modrinthContentStatus, `Found: ${result.totalHits || result.projects?.length || 0}.`, 'success');
+}
+
+async function importModrinthByRef() {
+  if (!window.api.importModrinthProject) return;
+  const ref = modrinthImportRef?.value?.trim();
+  if (!ref) {
+    setStatusText(modrinthImportStatus, 'Enter a Modrinth URL, slug, or project id.', 'error');
+    return;
+  }
+
+  setStatusText(modrinthImportStatus, 'Importing Modrinth project...');
+  const result = await window.api.importModrinthProject({
+    nickname: activeUser?.nickname || '',
+    ref,
+    minecraftVersion: getSelectedMinecraftVersion(),
+    loader: getSelectedModLoader()
+  });
+
+  if (!result.success) {
+    setStatusText(modrinthImportStatus, result.error || 'Modrinth import failed.', 'error');
+    return;
+  }
+
+  if (result.instance) {
+    currentSettings.activeInstanceId = result.instance.id;
+    currentSettings.modLoader = result.instance.loader || result.loader || getSelectedModLoader();
+    await loadBuildInstances();
+    await saveSettings({
+      minecraftVersion: result.minecraftVersion || getSelectedMinecraftVersion(),
+      activeInstanceId: result.instance.id,
+      modLoader: result.loader || currentSettings?.modLoader || 'fabric',
+      loaderVersion: result.loaderVersion || currentSettings?.loaderVersion || 'latest',
+      fabricLoaderVersion: result.fabricLoaderVersion || fields.fabricLoaderVersion?.value || 'latest',
+      forgeVersion: result.forgeVersion || currentSettings?.forgeVersion || 'latest',
+      neoforgeVersion: result.neoforgeVersion || currentSettings?.neoforgeVersion || 'latest',
+      quiltLoaderVersion: result.quiltLoaderVersion || currentSettings?.quiltLoaderVersion || 'latest'
+    });
+  }
+
+  await refreshMods();
+  setStatusText(
+    modrinthImportStatus,
+    `Imported ${result.project?.title || result.packName || ref}: ${result.installedCount || 0} files.`,
+    'success'
+  );
+}
+
+async function installModrinthProject(button) {
+  if (!button || !window.api.installModrinthProject) return;
+  const previousText = button.textContent;
+  const type = normalizeModrinthProjectType(button.dataset.projectType || getSelectedContentType());
+  button.disabled = true;
+  button.textContent = 'Installing...';
+  setStatusText(modrinthContentStatus, `Installing ${formatModrinthProjectType(type)}...`);
+  const result = await window.api.installModrinthProject({
+    nickname: activeUser?.nickname || '',
+    projectId: button.dataset.projectId,
+    slug: button.dataset.projectSlug,
+    type,
+    versionId: button.dataset.versionId || '',
+    minecraftVersion: getSelectedMinecraftVersion()
+  });
+
+  button.disabled = false;
+  button.textContent = previousText;
+
+  if (!result.success) {
+    setStatusText(modrinthContentStatus, result.error || 'Modrinth install failed.', 'error');
+    return;
+  }
+
+  setStatusText(
+    modrinthContentStatus,
+    `${formatModrinthProjectType(type)} installed: ${result.installed?.[0]?.name || result.installedCount || 1}.`,
+    'success'
+  );
+}
+
+async function installModrinthMod(button) {
+  if (!button) return;
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Установка...';
+  setStatusText(modrinthModStatus, 'Скачиваю мод и обязательные зависимости...');
+  const result = await window.api.installModrinthMod({
+    nickname: activeUser?.nickname || '',
+    projectId: button.dataset.projectId,
+    slug: button.dataset.projectSlug,
+    versionId: button.dataset.versionId || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    loader: getSelectedModLoader()
+  });
+
+  button.disabled = false;
+  button.textContent = previousText;
+
+  if (!result.success) {
+    setStatusText(modrinthModStatus, result.error || 'Не удалось установить мод.', 'error');
+    return;
+  }
+
+  setStatusText(modrinthModStatus, `Установлено файлов: ${result.installedCount || 0}.`, 'success');
+  await refreshMods();
+}
+
+async function installModrinthPack(button) {
+  if (!button) return;
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Установка...';
+  setStatusText(modrinthPackStatus, 'Скачиваю .mrpack и файлы сборки...');
+  const result = await window.api.installModrinthModpack({
+    nickname: activeUser?.nickname || '',
+    projectId: button.dataset.projectId,
+    slug: button.dataset.projectSlug,
+    versionId: button.dataset.versionId || '',
+    minecraftVersion: getSelectedPackVersion(),
+    loader: getSelectedPackLoader()
+  });
+
+  button.disabled = false;
+  button.textContent = previousText;
+
+  if (!result.success) {
+    setStatusText(modrinthPackStatus, result.error || 'Не удалось установить сборку.', 'error');
+    return;
+  }
+
+  if (result.minecraftVersion && fields.minecraftVersion) {
+    fields.minecraftVersion.value = result.minecraftVersion;
+    versionLabel.textContent = result.minecraftVersion;
+    syncCustomSelect(fields.minecraftVersion);
+  }
+  if (result.fabricLoaderVersion && fields.fabricLoaderVersion && (!fields.fabricLoaderVersion.value || fields.fabricLoaderVersion.value === 'latest')) {
+    fields.fabricLoaderVersion.value = result.fabricLoaderVersion;
+  }
+  if (result.instance) {
+    currentSettings.activeInstanceId = result.instance.id;
+    currentSettings.modLoader = result.instance.loader || result.loader || getSelectedModLoader();
+    await loadBuildInstances();
+  }
+  await saveSettings({
+    minecraftVersion: result.minecraftVersion || getSelectedMinecraftVersion(),
+    activeInstanceId: result.instance?.id || currentSettings?.activeInstanceId || '',
+    modLoader: result.loader || currentSettings?.modLoader || 'fabric',
+    loaderVersion: result.loaderVersion || currentSettings?.loaderVersion || 'latest',
+    fabricLoaderVersion: result.fabricLoaderVersion || fields.fabricLoaderVersion?.value || 'latest',
+    forgeVersion: result.forgeVersion || currentSettings?.forgeVersion || 'latest',
+    neoforgeVersion: result.neoforgeVersion || currentSettings?.neoforgeVersion || 'latest',
+    quiltLoaderVersion: result.quiltLoaderVersion || currentSettings?.quiltLoaderVersion || 'latest'
+  });
+  await refreshMods();
+  updateLaunchInsights();
+  setStatusText(
+    modrinthPackStatus,
+    `Сборка установлена: ${result.installedCount || 0} файлов, overrides: ${result.overridesCount || 0}.`,
+    'success'
+  );
+}
+
+async function toggleInstalledMod(button) {
+  const name = button?.dataset?.modName;
+  if (!name) return;
+  const enable = !button.classList.contains('active');
+  const result = await window.api.setModEnabled({
+    nickname: activeUser?.nickname || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    name,
+    enabled: enable
+  });
+  if (!result.success) {
+    setStatusText(modrinthModStatus, result.error || 'Не удалось изменить состояние мода.', 'error');
+    return;
+  }
+  await refreshMods();
+}
+
+async function deleteInstalledMod(button) {
+  const name = button?.dataset?.modName;
+  if (!name) return;
+  const row = button.closest('li');
+  const result = await window.api.scheduleModDelete({
+    nickname: activeUser?.nickname || '',
+    minecraftVersion: getSelectedMinecraftVersion(),
+    name
+  });
+  if (!result.success) {
+    setStatusText(modrinthModStatus, result.error || 'Не удалось удалить мод.', 'error');
+    return;
+  }
+
+  row?.classList.add('pending-delete');
+  const previousHtml = row?.innerHTML || '';
+  if (row) {
+    row.innerHTML = `
+      <div class="mod-row-main">
+        <span>${escapeHtml(result.name || name)}</span>
+        <small>Удаление через 5 секунд или при запуске Minecraft.</small>
+      </div>
+      <button class="tiny-button mod-delete-undo" type="button" data-delete-token="${escapeHtml(result.token)}">Отменить</button>
+    `;
+  }
+
+  const timer = setTimeout(async () => {
+    pendingModDeleteTimers.delete(result.token);
+    await refreshMods();
+  }, 5300);
+  pendingModDeleteTimers.set(result.token, { timer, previousHtml, row });
+}
+
+async function undoInstalledModDelete(button) {
+  const token = button?.dataset?.deleteToken;
+  if (!token) return;
+  const pending = pendingModDeleteTimers.get(token);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingModDeleteTimers.delete(token);
+  }
+  await window.api.undoModDelete({ token });
+  await refreshMods();
 }
 
 function renderSpotifyProgress() {
@@ -1012,7 +2719,12 @@ function setSpotifyPlayback(nowPlaying = null) {
 function applyProfileToUi() {
   fields.profileYoutube.value = currentProfile?.youtubeUrl || '';
   fields.profileTwitch.value = currentProfile?.twitchUrl || '';
+  if (skinLookupNick && !skinLookupNick.value) {
+    skinLookupNick.value = activeUser?.nickname || '';
+  }
   profileStatus.textContent = activeUser ? activeUser.nickname : 'UNIQUE';
+  if (profileModeLabel) profileModeLabel.textContent = activeUser?.guest ? 'Guest profile' : activeUser?.license ? 'Minecraft license' : 'UNIQUE account';
+  updateUserIdentity(activeUser?.nickname || '');
   const spotifyConnected = Boolean(currentProfile?.spotifyConnected);
   spotifyStatus.textContent = spotifyConnected ? 'привязан' : 'не привязан';
   spotifyAccount.textContent = currentProfile?.spotifyDisplayName
@@ -1093,6 +2805,10 @@ async function refreshSpotifyNowPlaying() {
   try {
     const result = await window.api.getSpotifyNowPlaying({ nickname: activeUser.nickname });
     if (!result.success) {
+      if (result.code === 'SPOTIFY_RECONNECT_REQUIRED' && result.profile) {
+        currentProfile = result.profile;
+        applyProfileToUi();
+      }
       spotifyNowPlaying.textContent = result.error;
       setSpotifyPlayback(null);
       return;
@@ -1132,19 +2848,85 @@ function stopSpotifyRefresh() {
   setSpotifyPlayback(null);
 }
 
+function populateMinecraftVersions() {
+  const select = fields.minecraftVersion;
+  if (!select) return;
+
+  const selectedVersion = currentSettings?.minecraftVersion || select.value || '1.20.1';
+  const versions = Array.isArray(systemInfo?.supportedVersions) ? [...systemInfo.supportedVersions] : [];
+  if (!versions.includes(selectedVersion)) {
+    versions.unshift(selectedVersion);
+  }
+
+  select.textContent = '';
+  for (const version of versions) {
+    const option = document.createElement('option');
+    option.value = version;
+    option.textContent = version;
+    select.appendChild(option);
+  }
+  select.value = selectedVersion;
+  syncCustomSelect(select);
+
+  if (fields.instanceVersion) {
+    fields.instanceVersion.textContent = '';
+    for (const version of versions) {
+      const option = document.createElement('option');
+      option.value = version;
+      option.textContent = version;
+      fields.instanceVersion.appendChild(option);
+    }
+    fields.instanceVersion.value = selectedVersion;
+    syncCustomSelect(fields.instanceVersion);
+  }
+
+  if (fields.packFilterVersion) {
+    fields.packFilterVersion.textContent = '';
+    for (const version of versions) {
+      const option = document.createElement('option');
+      option.value = version;
+      option.textContent = version;
+      fields.packFilterVersion.appendChild(option);
+    }
+    fields.packFilterVersion.value = versions.includes(selectedVersion) ? selectedVersion : versions[0] || '1.20.1';
+    syncCustomSelect(fields.packFilterVersion);
+  }
+}
+
 async function loadAppState() {
   systemInfo = await window.api.getSystemInfo();
   currentSettings = await window.api.getSettings({ nickname: activeUser?.nickname || '' });
+  if (!currentSettings.javaPath && systemInfo.recommendedJava?.path) {
+    currentSettings.javaPath = systemInfo.recommendedJava.path;
+  }
   modsFolder.textContent = systemInfo.modsFolder;
   systemMemory.textContent = `${systemInfo.totalMemoryMb} МБ RAM | ${systemInfo.refreshRate} Hz`;
+  populateMinecraftVersions();
+  await loadBuildInstances();
+  renderBuildProfiles(systemInfo.buildProfiles || []);
+  renderProjects(systemInfo.projects || []);
+  renderNews(systemInfo.news || []);
+  renderReadiness();
+  renderCommandCenter();
   applySettingsToUi();
-  await Promise.all([refreshMods(), refreshPreviews(), loadProfile()]);
+  modsFolder.textContent = 'Служебные моды UNIQUE скрыты и проверяются по SHA-256 перед запуском.';
+  await Promise.all([
+    refreshLauncherContent(),
+    refreshMods(),
+    refreshPreviews(),
+    loadProfile(),
+    refreshRegisteredServers(),
+    refreshApiHealth(),
+    loadModrinthTags().catch(() => null)
+  ]);
   startSpotifyRefresh();
+  startServerRegistryRefresh();
+  startApiHealthRefresh();
 }
 
 async function enterLauncher(user) {
   activeUser = user;
-  activeUserLabel.textContent = activeUser.nickname;
+  updateUserIdentity(activeUser.nickname);
   authScreen.classList.add('hidden');
   launcherScreen.classList.remove('hidden');
   await loadAppState();
@@ -1162,6 +2944,54 @@ async function login(event) {
 
   if (!result.success) {
     setMessage(loginMessage, result.error);
+    return;
+  }
+
+  await enterLauncher(result.user);
+}
+
+async function guestLogin(event) {
+  event.preventDefault();
+  if (!window.api.guestLogin) return;
+
+  setMessage(guestMessage, '');
+  const result = await window.api.guestLogin({
+    nickname: fields.guestNick.value.trim()
+  });
+
+  if (!result.success) {
+    setMessage(guestMessage, result.error || 'Не удалось войти как гость.');
+    return;
+  }
+
+  await enterLauncher(result.user);
+  if (result.skin?.path) {
+    await saveSettings({ skin: result.skin.path, useUniqueMods: false });
+    await refreshPreviews();
+  }
+}
+
+async function microsoftLogin() {
+  if (!window.api.startMicrosoftLogin || !window.api.completeMicrosoftLogin) {
+    setMessage(loginMessage, 'Microsoft login is not available in this build.');
+    return;
+  }
+
+  microsoftLoginButton.disabled = true;
+  setMessage(loginMessage, 'Opening Microsoft login...', 'success');
+  const flow = await window.api.startMicrosoftLogin();
+  if (!flow.success) {
+    microsoftLoginButton.disabled = false;
+    setMessage(loginMessage, flow.error || 'Microsoft login failed.');
+    return;
+  }
+
+  setMessage(loginMessage, 'Завершите вход в открывшемся браузере — лаунчер получит callback автоматически.', 'success');
+  const result = await window.api.completeMicrosoftLogin({ flowId: flow.flowId });
+  microsoftLoginButton.disabled = false;
+
+  if (!result.success) {
+    setMessage(loginMessage, result.error || 'Minecraft license login failed.');
     return;
   }
 
@@ -1192,13 +3022,38 @@ async function register(event) {
 }
 
 async function selectSkin() {
-  const file = await window.api.chooseFile({ filters: [{ name: 'HD skin PNG', extensions: ['png'] }] });
+  const file = await window.api.chooseFile({ filters: [{ name: 'Minecraft skin PNG', extensions: ['png'] }] });
   if (!file) return;
 
   await saveSettings({ skin: file.path });
   fields.skinName.textContent = file.name;
   await setImagePreview(fields.skinPreview, file.path);
   await refreshPlayerPreviewAssets();
+  await refreshUserHeadAvatar();
+}
+
+async function downloadSkinByNickname() {
+  const nickname = skinLookupNick?.value?.trim() || activeUser?.nickname || '';
+  if (!nickname || !window.api.downloadSkinByNickname) return;
+
+  if (skinLookupStatus) skinLookupStatus.textContent = 'Скачиваю скин...';
+  const result = await window.api.downloadSkinByNickname({ nickname });
+  if (!result.success) {
+    if (skinLookupStatus) skinLookupStatus.textContent = result.error || 'Не удалось скачать скин.';
+    return;
+  }
+
+  await saveSettings({ skin: result.file.path });
+  fields.skinName.textContent = result.file.name;
+  if (result.preview) {
+    fields.skinPreview.src = result.preview;
+    fields.skinPreview.classList.add('visible');
+  } else {
+    await setImagePreview(fields.skinPreview, result.file.path);
+  }
+  await refreshPlayerPreviewAssets();
+  await refreshUserHeadAvatar();
+  if (skinLookupStatus) skinLookupStatus.textContent = `Скин ${nickname} установлен.`;
 }
 
 async function selectCape() {
@@ -1242,10 +3097,17 @@ async function launchMinecraft() {
     return;
   }
 
+  if (!buildInstances.length || !currentSettings?.activeInstanceId) {
+    setLauncherSection('library');
+    launchStatus.textContent = 'Перед первым запуском создай сборку или установи Modrinth pack.';
+    return;
+  }
+
+  await window.api.finalizeModDeletes?.();
   await saveSettings();
   setLaunchActive(true);
-  launchStatus.textContent = 'Подготовка Fabric-клиента...';
-  appendLog('Запуск Minecraft Fabric...');
+  launchStatus.textContent = `Подготовка ${formatLoaderName(getSelectedModLoader())}-клиента...`;
+  appendLog(`Запуск Minecraft ${formatLoaderName(getSelectedModLoader())}...`);
 
   const result = await window.api.launchMinecraft({
     user: activeUser,
@@ -1256,6 +3118,16 @@ async function launchMinecraft() {
   if (!result.success) {
     launchStatus.textContent = result.error;
     appendLog(`Ошибка: ${result.error}`);
+    if (result.code === 'BUILD_INSTANCE_REQUIRED') {
+      setLauncherSection('library');
+    }
+    if (result.code === 'JAVA_REQUIRED') {
+      const install = window.confirm(`${result.error}\n\nУстановить Java 21 сейчас?`);
+      if (install) {
+        await window.api.installJava();
+        launchStatus.textContent = 'Открыта установка Java 21. После установки запусти Minecraft еще раз.';
+      }
+    }
     setLaunchActive(false);
     return;
   }
@@ -1265,18 +3137,22 @@ async function launchMinecraft() {
     : 'Моды уже актуальны.';
   const wallpaperText = result.wallpaperPack ? ` Обои: ${result.wallpaperPack}.` : '';
   const skinText = result.playerAssetsPack ? ` Скин: ${result.playerAssetsPack}.` : '';
-  const fabricText = result.fabric ? ` Fabric Loader: ${result.fabric.loaderVersion}.` : '';
+  const loaderText = result.loader?.name
+    ? ` ${result.loader.name}${result.loader.loaderVersion && result.loader.loaderVersion !== 'vanilla' ? `: ${result.loader.loaderVersion}` : ''}.`
+    : '';
+  const javaText = result.java ? ` Java ${result.java.major}.` : '';
   const fpsText = result.maxFps ? ` FPS limit: ${result.maxFps}.` : '';
-  launchStatus.textContent = `${modsText}${wallpaperText}${skinText}${fabricText}${fpsText}`;
+  launchStatus.textContent = `${modsText}${wallpaperText}${skinText}${loaderText}${javaText}${fpsText}`;
 }
 
 function updateMemoryLabels() {
   fields.memoryMaxLabel.textContent = fields.memoryMax.value;
+  updateLaunchInsights();
 }
 
 function setLaunchActive(active) {
   launchActive = active;
-  setButtonIconText(launchButton, active ? 'stop' : 'play', active ? 'Остановить запуск' : 'Запустить Fabric');
+  setButtonIconText(launchButton, active ? 'stop' : 'play', active ? 'Остановить запуск' : 'Играть');
   launchButton.classList.toggle('danger', active);
 }
 
@@ -1285,10 +3161,10 @@ function startSpaceEffect() {
 
   const ctx = spaceCanvas.getContext('2d');
   const stars = [];
-  const starCount = 160;
   let width = 0;
   let height = 0;
   let dpr = 1;
+  let lastFrameAt = 0;
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1301,6 +3177,7 @@ function startSpaceEffect() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     stars.length = 0;
+    const starCount = Math.max(80, Math.min(150, Math.floor((width * height) / 14000)));
     for (let i = 0; i < starCount; i += 1) {
       stars.push({
         x: Math.random() * width,
@@ -1314,9 +3191,11 @@ function startSpaceEffect() {
   }
 
   function drawNebula(time) {
+    const accentRgb = spaceAccentRgb;
+    const accent2Rgb = spaceAccent2Rgb;
     const gradient = ctx.createLinearGradient(0, 0, width, height);
     gradient.addColorStop(0, 'rgba(12, 18, 38, 0.9)');
-    gradient.addColorStop(0.45, 'rgba(35, 20, 68, 0.52)');
+    gradient.addColorStop(0.45, `rgba(${accentRgb}, 0.18)`);
     gradient.addColorStop(1, 'rgba(3, 7, 18, 0.92)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
@@ -1327,9 +3206,9 @@ function startSpaceEffect() {
     for (let i = 0; i < 5; i += 1) {
       const y = (height / 6) * (i + 1);
       const band = ctx.createLinearGradient(0, y - 80, width, y + 80);
-      band.addColorStop(0, 'rgba(124, 58, 237, 0)');
-      band.addColorStop(0.5, i % 2 ? 'rgba(34, 211, 238, 0.16)' : 'rgba(167, 139, 250, 0.16)');
-      band.addColorStop(1, 'rgba(124, 58, 237, 0)');
+      band.addColorStop(0, `rgba(${accentRgb}, 0)`);
+      band.addColorStop(0.5, i % 2 ? `rgba(${accentRgb}, 0.16)` : `rgba(${accent2Rgb}, 0.16)`);
+      band.addColorStop(1, `rgba(${accentRgb}, 0)`);
       ctx.fillStyle = band;
       ctx.fillRect(0, y - 90, width, 180);
     }
@@ -1337,27 +3216,56 @@ function startSpaceEffect() {
   }
 
   function tick(time) {
-    drawNebula(time);
+    spaceAnimationFrame = requestAnimationFrame(tick);
+    if (document.hidden) {
+      return;
+    }
+
+    const reduceMotion = document.body.classList.contains('reduce-motion');
+    const frameInterval = reduceMotion ? 400 : 33;
+    if (time - lastFrameAt < frameInterval) {
+      return;
+    }
+    lastFrameAt = time;
+
+    drawNebula(reduceMotion ? 0 : time);
 
     for (const star of stars) {
-      star.y += star.drift * star.z;
-      star.x += Math.sin((time * 0.0002) + star.y * 0.01) * 0.08;
+      if (!reduceMotion) {
+        star.y += star.drift * star.z;
+        star.x += Math.sin((time * 0.0002) + star.y * 0.01) * 0.08;
+      }
       if (star.y > height + 8) {
         star.y = -8;
         star.x = Math.random() * width;
       }
 
-      const alpha = 0.28 + Math.sin(time * 0.002 * star.z + star.x) * 0.16 + star.glow * 0.34;
+      const alpha = 0.28 + Math.sin((reduceMotion ? 0 : time) * 0.002 * star.z + star.x) * 0.16 + star.glow * 0.34;
       ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.9, alpha))})`;
       ctx.fillRect(star.x, star.y, star.size, star.size);
     }
-
-    spaceAnimationFrame = requestAnimationFrame(tick);
   }
 
   window.addEventListener('resize', resize);
   resize();
   spaceAnimationFrame = requestAnimationFrame(tick);
+}
+
+function resetPlayerPreviewView() {
+  playerPreview.yaw = -0.45;
+  playerPreview.pitch = 0.12;
+  playerPreview.zoom = 1;
+  drawPlayerPreview();
+}
+
+function rotatePlayerPreview(delta) {
+  playerPreview.yaw += delta;
+  drawPlayerPreview();
+}
+
+function zoomPlayerPreview(delta) {
+  playerPreview.zoom = Math.max(0.65, Math.min(1.85, playerPreview.zoom + delta));
+  drawPlayerPreview();
 }
 
 if (playerPreviewCanvas) {
@@ -1404,6 +3312,88 @@ if (playerPreviewCanvas) {
   drawPlayerPreview();
 }
 
+document.getElementById('preview-reset')?.addEventListener('click', resetPlayerPreviewView);
+document.getElementById('preview-rotate-left')?.addEventListener('click', () => rotatePlayerPreview(-0.35));
+document.getElementById('preview-rotate-right')?.addEventListener('click', () => rotatePlayerPreview(0.35));
+document.getElementById('preview-zoom-out')?.addEventListener('click', () => zoomPlayerPreview(-0.12));
+document.getElementById('preview-zoom-in')?.addEventListener('click', () => zoomPlayerPreview(0.12));
+
+function renderUpdateStatus(payload = {}) {
+  const state = payload.state || 'idle';
+  const labels = {
+    checking: 'проверка',
+    available: 'доступно',
+    none: 'актуально',
+    downloading: 'загрузка',
+    downloaded: 'готово',
+    error: 'ошибка'
+  };
+  if (updateStatus) updateStatus.textContent = labels[state] || state;
+  if (updateHealthStatus) updateHealthStatus.textContent = labels[state] || state;
+  if (installUpdateButton) installUpdateButton.classList.toggle('hidden', state !== 'downloaded');
+  if (!updateMessage) return;
+
+  if (state === 'available') {
+    updateMessage.textContent = 'Обновление найдено, начинается загрузка.';
+  } else if (state === 'downloading') {
+    updateMessage.textContent = `Загрузка обновления: ${Math.round(Number(payload.progress?.percent || 0))}%`;
+  } else if (state === 'downloaded') {
+    updateMessage.textContent = payload.autoInstallOnQuit
+      ? 'Обновление скачано. Оно установится при закрытии лаунчера, либо можно установить сейчас.'
+      : 'Обновление скачано. Можно установить и перезапустить лаунчер.';
+  } else if (state === 'none') {
+    updateMessage.textContent = 'Установлена актуальная версия лаунчера.';
+  } else if (state === 'error') {
+    updateMessage.textContent = payload.error || 'Не удалось проверить обновление.';
+  } else if (state === 'checking') {
+    updateMessage.textContent = 'Проверяю доступные релизы...';
+  }
+}
+
+async function checkUpdates() {
+  renderUpdateStatus({ state: 'checking' });
+  const result = await window.api.checkForUpdates();
+  if (!result.success) {
+    renderUpdateStatus({ state: 'error', error: result.error || 'Обновления сейчас недоступны.' });
+  }
+}
+
+async function exportDiagnostics() {
+  if (diagnosticsMessage) diagnosticsMessage.textContent = 'Собираю диагностику...';
+  const result = await window.api.exportDiagnostics();
+  if (diagnosticsMessage) {
+    diagnosticsMessage.textContent = result.success
+      ? `ZIP готов: ${result.path}`
+      : (result.error || 'Не удалось собрать диагностику.');
+  }
+}
+
+async function analyzeCrash() {
+  if (diagnosticsMessage) diagnosticsMessage.textContent = 'Анализирую последние логи...';
+  const result = await window.api.analyzeCrash({ nickname: activeUser?.nickname || '', submit: true });
+  if (!diagnosticsMessage) return;
+  if (!result.success) {
+    diagnosticsMessage.textContent = result.error || 'Не удалось проанализировать краш.';
+    return;
+  }
+  diagnosticsMessage.textContent = (result.findings || [])
+    .map((finding) => `${finding.title}: ${finding.detail}`)
+    .join(' | ');
+}
+
+async function repairGame() {
+  if (diagnosticsMessage) diagnosticsMessage.textContent = 'Проверяю и чиню игровые файлы...';
+  const result = await window.api.repairGame({ nickname: activeUser?.nickname || '' });
+  if (!diagnosticsMessage) return;
+  if (!result.success) {
+    diagnosticsMessage.textContent = result.error || 'Repair failed.';
+    return;
+  }
+  const repaired = result.repaired || {};
+  diagnosticsMessage.textContent = `Готово: assets ${repaired.emptyAssets || 0}, temp mods ${repaired.removedTempMods?.length || 0}, servers.dat обновлён.`;
+  await refreshMods();
+}
+
 window.addEventListener('focus', refreshSpotifyNowPlaying);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
@@ -1413,57 +3403,266 @@ document.addEventListener('visibilitychange', () => {
 
 loginTab.addEventListener('click', () => setAuthMode('login'));
 registerTab.addEventListener('click', () => setAuthMode('register'));
-sectionTabs.forEach((button) => {
+guestTab?.addEventListener('click', () => setAuthMode('guest'));
+sectionButtons.forEach((button) => {
   button.addEventListener('click', () => setLauncherSection(button.dataset.section));
+});
+settingsTabs.forEach((button) => {
+  button.addEventListener('click', () => setSettingsTab(button.dataset.settingsTab));
 });
 loginForm.addEventListener('submit', login);
 registerForm.addEventListener('submit', register);
+guestForm?.addEventListener('submit', guestLogin);
+microsoftLoginButton?.addEventListener('click', microsoftLogin);
 document.getElementById('window-minimize').addEventListener('click', () => controlWindow('minimize'));
 windowMaximizeButton.addEventListener('click', () => controlWindow('maximize'));
 document.getElementById('window-close').addEventListener('click', () => controlWindow('close'));
+activeUserLabel?.addEventListener('click', () => setLauncherSection('profile'));
+activeUserLabel?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    setLauncherSection('profile');
+  }
+});
 document.getElementById('logout-button').addEventListener('click', async () => {
   await window.api.logout({ sessionToken: activeUser?.sessionToken });
   stopSpotifyRefresh();
+  stopServerRegistryRefresh();
+  stopApiHealthRefresh();
   activeUser = null;
   currentProfile = null;
+  updateUserIdentity('');
   launcherScreen.classList.add('hidden');
   authScreen.classList.remove('hidden');
   setAuthMode('login');
 });
 document.getElementById('refresh-mods').addEventListener('click', refreshMods);
+document.getElementById('refresh-mods-panel')?.addEventListener('click', refreshMods);
+checkModrinthUpdatesButton?.addEventListener('click', checkModrinthUpdates);
+document.getElementById('refresh-content')?.addEventListener('click', async () => {
+  await refreshLauncherContent();
+  await refreshRegisteredServers();
+  await refreshApiHealth();
+});
+serverRegistryList?.addEventListener('click', (event) => {
+  const button = event.target.closest('.server-copy');
+  if (!button) return;
+  copyServerAddress(button.dataset.address || '');
+});
+document.getElementById('refresh-api-health')?.addEventListener('click', refreshApiHealth);
+document.getElementById('rescan-java')?.addEventListener('click', rescanJava);
+document.getElementById('open-build-library')?.addEventListener('click', openBuildLibrary);
+document.getElementById('rail-open-library')?.addEventListener('click', openBuildLibrary);
+document.getElementById('close-build-library')?.addEventListener('click', closeBuildLibrary);
+document.getElementById('build-library-backdrop')?.addEventListener('click', closeBuildLibrary);
+document.getElementById('open-profile-card')?.addEventListener('click', () => setLauncherSection('profile'));
+refreshInstancesButton?.addEventListener('click', loadBuildInstances);
+createInstanceButton?.addEventListener('click', createBuildInstance);
+importExistingInstanceButton?.addEventListener('click', importExistingInstance);
+importMrpackButton?.addEventListener('click', importMrpack);
+instanceList?.addEventListener('click', async (event) => {
+  const button = event.target.closest('.instance-select');
+  if (!button) return;
+  await selectBuildInstance(button.dataset.instanceId);
+});
+fields.activeInstance?.addEventListener('change', async () => {
+  await selectBuildInstance(fields.activeInstance.value);
+});
+document.getElementById('refresh-server-builds')?.addEventListener('click', async () => {
+  await refreshRegisteredServers();
+  renderServerBuildResults();
+});
+serverBuildSearch?.addEventListener('input', renderServerBuildResults);
+serverBuildResults?.addEventListener('click', async (event) => {
+  const button = event.target.closest('.server-build-select');
+  if (!button) return;
+  await selectBuildProfile(button.dataset.buildId, true);
+});
+buildLibraryGrid?.addEventListener('click', async (event) => {
+  const button = event.target.closest('.build-download');
+  if (!button) return;
+  await selectBuildProfile(button.dataset.buildId, true);
+});
+document.getElementById('open-user-mods').addEventListener('click', () => window.api.openUserModsFolder({
+  nickname: activeUser?.nickname || '',
+  minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1'
+}));
+document.getElementById('open-user-mods-panel')?.addEventListener('click', () => window.api.openUserModsFolder({
+  nickname: activeUser?.nickname || '',
+  minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1'
+}));
+modrinthModSearchButton?.addEventListener('click', searchModrinthMods);
+modrinthModSearch?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchModrinthMods();
+  }
+});
+modrinthContentSearchButton?.addEventListener('click', searchModrinthContent);
+modrinthContentSearch?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchModrinthContent();
+  }
+});
+modrinthContentType?.addEventListener('change', () => {
+  setStatusText(modrinthContentStatus, `Selected: ${formatModrinthProjectType(getSelectedContentType())}.`);
+});
+modrinthImportButton?.addEventListener('click', importModrinthByRef);
+modrinthImportRef?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    importModrinthByRef();
+  }
+});
+modrinthModResults?.addEventListener('click', async (event) => {
+  const detailsButton = event.target.closest('.modrinth-show-details');
+  if (detailsButton) {
+    await showModrinthDetails(detailsButton);
+    return;
+  }
+  const versionsButton = event.target.closest('.modrinth-show-versions');
+  if (versionsButton) {
+    await showModrinthVersions(versionsButton);
+    return;
+  }
+  const dependenciesButton = event.target.closest('.modrinth-show-dependencies');
+  if (dependenciesButton) {
+    await showModrinthDependencies(dependenciesButton);
+    return;
+  }
+  const button = event.target.closest('.modrinth-install-mod');
+  if (button) await installModrinthMod(button);
+});
+modrinthContentResults?.addEventListener('click', async (event) => {
+  const detailsButton = event.target.closest('.modrinth-show-details');
+  if (detailsButton) {
+    await showModrinthDetails(detailsButton);
+    return;
+  }
+  const versionsButton = event.target.closest('.modrinth-show-versions');
+  if (versionsButton) {
+    await showModrinthVersions(versionsButton);
+    return;
+  }
+  const dependenciesButton = event.target.closest('.modrinth-show-dependencies');
+  if (dependenciesButton) {
+    await showModrinthDependencies(dependenciesButton);
+    return;
+  }
+  const button = event.target.closest('.modrinth-install-project');
+  if (button) await installModrinthProject(button);
+});
+[modsList, modrinthInstalledMods].filter(Boolean).forEach((list) => {
+  list.addEventListener('click', async (event) => {
+    const toggle = event.target.closest('.mod-toggle');
+    if (toggle) {
+      await toggleInstalledMod(toggle);
+      return;
+    }
+    const deleteButton = event.target.closest('.mod-delete');
+    if (deleteButton) {
+      await deleteInstalledMod(deleteButton);
+      return;
+    }
+    const undoButton = event.target.closest('.mod-delete-undo');
+    if (undoButton) {
+      await undoInstalledModDelete(undoButton);
+    }
+  });
+});
+modrinthPackSearchButton?.addEventListener('click', searchModrinthPacks);
+modrinthPackSearch?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchModrinthPacks();
+  }
+});
+[fields.packFilterVersion, fields.packFilterLoader].filter(Boolean).forEach((input) => {
+  input.addEventListener('change', () => {
+    updateModrinthLoaderLabels();
+    setStatusText(
+      modrinthPackStatus,
+      `Modrinth pack filter: ${getSelectedPackVersion()} / ${formatLoaderName(getSelectedPackLoader())}.`
+    );
+  });
+});
+modrinthPackResults?.addEventListener('click', async (event) => {
+  const detailsButton = event.target.closest('.modrinth-show-details');
+  if (detailsButton) {
+    await showModrinthDetails(detailsButton);
+    return;
+  }
+  const versionsButton = event.target.closest('.modrinth-show-versions');
+  if (versionsButton) {
+    await showModrinthVersions(versionsButton);
+    return;
+  }
+  const dependenciesButton = event.target.closest('.modrinth-show-dependencies');
+  if (dependenciesButton) {
+    await showModrinthDependencies(dependenciesButton);
+    return;
+  }
+  const button = event.target.closest('.modrinth-install-pack');
+  if (button) await installModrinthPack(button);
+});
 document.getElementById('select-skin').addEventListener('click', selectSkin);
 document.getElementById('select-cape').addEventListener('click', selectCape);
+document.getElementById('download-skin-by-nick')?.addEventListener('click', downloadSkinByNickname);
 document.getElementById('choose-wallpaper').addEventListener('click', selectWallpaper);
 document.getElementById('select-java').addEventListener('click', selectJava);
 document.getElementById('save-profile-links').addEventListener('click', saveProfileLinks);
 document.getElementById('connect-spotify').addEventListener('click', connectSpotify);
 document.getElementById('disconnect-spotify').addEventListener('click', disconnectSpotify);
 document.getElementById('refresh-spotify').addEventListener('click', refreshSpotifyNowPlaying);
+document.getElementById('check-updates')?.addEventListener('click', checkUpdates);
+document.getElementById('install-update')?.addEventListener('click', () => window.api.installUpdate());
+document.getElementById('open-logs')?.addEventListener('click', () => window.api.openLogsFolder());
+document.getElementById('export-diagnostics')?.addEventListener('click', exportDiagnostics);
+document.getElementById('analyze-crash')?.addEventListener('click', analyzeCrash);
+document.getElementById('repair-game')?.addEventListener('click', repairGame);
 launchButton.addEventListener('click', launchMinecraft);
 document.getElementById('clear-log').addEventListener('click', () => { launchLog.textContent = ''; });
-
-document.querySelectorAll('.preset-button').forEach((button) => {
-  button.addEventListener('click', async () => {
-    fields.memoryMax.value = button.dataset.max;
-    updateMemoryLabels();
-    await saveSettings();
-  });
-});
 
 fields.memoryMax.addEventListener('input', updateMemoryLabels);
 fields.memoryMax.addEventListener('change', () => saveSettings());
 fields.hideLauncherDuringGame.addEventListener('change', () => saveSettings());
+fields.useUniqueMods?.addEventListener('change', () => saveSettings());
+fields.appearanceTheme?.addEventListener('change', () => saveSettings());
+fields.accentColor?.addEventListener('change', () => saveSettings());
+fields.reduceMotion?.addEventListener('change', () => saveSettings());
 fields.skinModel.addEventListener('change', async () => {
   await saveSettings();
   drawPlayerPreview();
 });
 
-[fields.minecraftVersion, fields.fabricLoaderVersion, fields.javaPath].forEach((input) => {
-  input.addEventListener('change', () => saveSettings());
+[fields.minecraftVersion, fields.projectId, fields.buildProfile, fields.fabricLoaderVersion, fields.javaPath].filter(Boolean).forEach((input) => {
+  input.addEventListener('change', async () => {
+    if (input === fields.minecraftVersion) {
+      versionLabel.textContent = fields.minecraftVersion.value.trim() || '1.20.1';
+      if (fields.instanceVersion) {
+        fields.instanceVersion.value = fields.minecraftVersion.value;
+        syncCustomSelect(fields.instanceVersion);
+      }
+      updateLaunchInsights();
+      updateModrinthLoaderLabels();
+    }
+    if (input === fields.buildProfile) {
+      applyBuildProfileMemory(input.value);
+    }
+    await saveSettings();
+    if (input === fields.minecraftVersion || input === fields.projectId || input === fields.buildProfile) {
+      await refreshMods();
+    }
+    if (input === fields.projectId) {
+      await refreshRegisteredServers();
+    }
+  });
 });
 
 fields.minecraftVersion.addEventListener('input', () => {
   versionLabel.textContent = fields.minecraftVersion.value.trim() || '1.20.1';
+  updateLaunchInsights();
 });
 
 window.api.onLaunchProgress((data) => {
@@ -1485,12 +3684,19 @@ window.api.onLaunchClosed((code) => {
   setLaunchActive(false);
 });
 window.api.onWindowMaximizedState(setWindowMaximizeButton);
+window.api.onUpdateStatus(renderUpdateStatus);
+
+['copy', 'cut', 'contextmenu'].forEach((eventName) => {
+  document.addEventListener(eventName, (event) => event.preventDefault());
+});
 
 async function init() {
   setAuthMode('login');
   prepareLauncherSections();
   setLauncherSection('main');
+  setSettingsTab('info');
   installSvgIcons();
+  setupCustomSelects();
   await loadTitlebarIcon();
   await updateWindowMaximizeButton();
   await refreshMods();

@@ -3,6 +3,18 @@
 .env.*
 !.env.example
 
+# Credentials and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+id_rsa
+id_ed25519
+credentials*.json
+secrets*.json
+*.secret
+.npmrc
 # Dependencies
 node_modules/
 
@@ -31,13 +43,6 @@ bukkit-plugins/
 fabric-menu-mod/
 bukkit-music-status-plugin/
 
-# Visual/private brand assets
-*.ico
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.webp
 
 # Temporary scraped/mock files
 temp_*
@@ -45,6 +50,7 @@ temp_*
 # Builder scratch files
 build/*
 !build/installer.nsh
+!build/afterPack.js
 build-exe.bat
 build-fabric-mod.bat
 

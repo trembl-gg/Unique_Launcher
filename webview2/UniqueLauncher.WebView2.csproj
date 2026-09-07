@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>UNIQUE LAUNCHER</AssemblyName>
+    <RootNamespace>UniqueLauncher.WebView2</RootNamespace>
+    <ApplicationIcon>..\unique.ico</ApplicationIcon>
+    <Version>1.2.7</Version>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="node-backend.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="electron-shim.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\renderer\**\*" Link="renderer\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\unique.ico" Link="unique.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

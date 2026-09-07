@@ -69,10 +69,12 @@ const ASSET_UPLOADS_KEY = 'assetUploads';
 const LAUNCHER_NAME = 'UNIQUE LAUNCHER';
 const DISCORD_INVITE_URL = 'https://discord.gg/unique';
 const DISCORD_CLIENT_ID = process.env.UNIQUE_DISCORD_CLIENT_ID || '1480900668788310088';
-const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID || process.env.UNIQUE_MICROSOFT_CLIENT_ID || '';
-const MICROSOFT_DEVICE_CODE_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode';
+const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID || process.env.UNIQUE_MICROSOFT_CLIENT_ID || '8e0b0376-e0b6-4f26-869f-9d5c7e321046';
+const MICROSOFT_AUTHORIZE_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize';
 const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
 const MICROSOFT_OAUTH_SCOPE = 'XboxLive.signin offline_access';
+// Register this exact URI in Azure App Registration -> Authentication -> Mobile and desktop applications.
+const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:53682/callback';
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || process.env.UNIQUE_SPOTIFY_CLIENT_ID || '';
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || process.env.UNIQUE_SPOTIFY_CLIENT_SECRET || '';
 const SPOTIFY_REDIRECT_PORT = Number(process.env.SPOTIFY_REDIRECT_PORT || 48128);
@@ -167,7 +169,8 @@ const FALLBACK_SUPPORTED_VERSIONS = [
 const activeSessions = new Map();
 const activeLaunches = new Map();
 const pendingUserModDeletes = new Map();
-const microsoftDeviceFlows = new Map();
+const microsoftAuthFlows = new Map();
+let microsoftAuthServer = null;
 let modManifestCache = null;
 let modManifestFetchedAt = 0;
 let rpcClient = null;
@@ -1536,7 +1539,7 @@ function requestJsonOnce(method, candidate, options = {}) {
           const errorMessage = typeof parsedBody?.error === 'string'
             ? parsedBody.error
             : parsedBody?.error?.message;
-          const err = new Error(parsedBody?.error_description || errorMessage || parsedBody?.message || `HTTP ${response.statusCode}`);
+          const err = new Error(parsedBody?.error_description || errorMessage || parsedBody?.message || `HTTP ${response.statusCode} from ${parsed.hostname}${parsed.pathname}`);
           err.statusCode = response.statusCode;
           err.responseBody = parsedBody;
           if (typeof parsedBody?.error === 'string') {
@@ -4538,11 +4541,46 @@ function formEncode(values = {}) {
 }
 
 async function microsoftPostJson(url, body) {
-  return requestJson('POST', url, {
-    timeoutMs: 15000,
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body)
-  });
+  try {
+    return await requestJson('POST', url, {
+      timeoutMs: 15000,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (err) {
+    const response = err?.responseBody || {};
+    const endpoint = new URL(url);
+    const detail = response.Message || response.message || response.error_description || response.error?.message || err?.message || 'request failed';
+    const xerr = response.XErr || response.xerr || '';
+    if (endpoint.hostname === 'api.minecraftservices.com'
+      && endpoint.pathname === '/authentication/login_with_xbox'
+      && err?.statusCode === 403) {
+      throw new Error('Minecraft Services отклонил регистрацию приложения (HTTP 403). Client ID должен быть разрешён Minecraft/Xbox для этого API; настройка callback или лицензия игрока это не исправит. Подробнее: https://aka.ms/AppRegInfo');
+    }
+    throw new Error(`Microsoft/Xbox request to ${endpoint.hostname} failed: ${detail}${xerr ? ` (Xbox XErr ${xerr})` : ''}`);
+  }
+}
+
+function createMicrosoftPkcePair() {
+  const verifier = base64Url(crypto.randomBytes(64));
+  const challenge = base64Url(crypto.createHash('sha256').update(verifier).digest());
+  return { verifier, challenge };
+}
+
+function closeMicrosoftAuthServer() {
+  if (microsoftAuthServer) {
+    microsoftAuthServer.close();
+    microsoftAuthServer = null;
+  }
+}
+
+function finishMicrosoftAuthFlow(flowId, result) {
+  const flow = microsoftAuthFlows.get(flowId);
+  if (!flow || flow.finished) return;
+  flow.finished = true;
+  clearTimeout(flow.timer);
+  closeMicrosoftAuthServer();
+  flow.resolve(result);
 }
 
 async function startMicrosoftDeviceFlow() {
@@ -4550,70 +4588,128 @@ async function startMicrosoftDeviceFlow() {
     throw new Error('MICROSOFT_CLIENT_ID is not configured.');
   }
 
-  const device = await requestJson('POST', MICROSOFT_DEVICE_CODE_URL, {
-    timeoutMs: 12000,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: formEncode({
-      client_id: MICROSOFT_CLIENT_ID,
-      scope: MICROSOFT_OAUTH_SCOPE
-    })
-  });
-
-  const flowId = crypto.randomBytes(16).toString('hex');
-  microsoftDeviceFlows.set(flowId, {
-    deviceCode: device.device_code,
-    interval: Math.max(5, Number(device.interval || 5)),
-    expiresAt: Date.now() + Math.max(60, Number(device.expires_in || 900)) * 1000
-  });
-
-  const verificationUri = device.verification_uri || device.verification_url || 'https://www.microsoft.com/link';
-  shell.openExternal(verificationUri).catch(() => {});
-
-  return {
-    flowId,
-    userCode: device.user_code,
-    verificationUri,
-    message: device.message || `Open ${verificationUri} and enter code ${device.user_code}.`,
-    expiresIn: Number(device.expires_in || 900),
-    interval: Number(device.interval || 5)
-  };
-}
-
-async function pollMicrosoftDeviceToken(flowId) {
-  const flow = microsoftDeviceFlows.get(String(flowId || ''));
-  if (!flow) {
-    throw new Error('Microsoft login flow was not found or expired.');
+  const redirectUrl = new URL(MICROSOFT_REDIRECT_URI);
+  if (redirectUrl.protocol !== 'http:' || redirectUrl.hostname !== 'localhost' || redirectUrl.port !== '53682' || redirectUrl.pathname !== '/callback') {
+    throw new Error('MICROSOFT_REDIRECT_URI must be http://localhost:53682/callback.');
   }
 
-  while (Date.now() < flow.expiresAt) {
-    await new Promise((resolve) => setTimeout(resolve, flow.interval * 1000));
+  for (const [oldFlowId] of microsoftAuthFlows) {
+    finishMicrosoftAuthFlow(oldFlowId, { error: new Error('Microsoft login was restarted.') });
+  }
+
+  const flowId = crypto.randomBytes(16).toString('hex');
+  const state = crypto.randomBytes(24).toString('hex');
+  const pkce = createMicrosoftPkcePair();
+  let resolveFlow;
+  const completion = new Promise((resolve) => { resolveFlow = resolve; });
+  const flow = {
+    state,
+    verifier: pkce.verifier,
+    completion,
+    resolve: resolveFlow,
+    finished: false,
+    timer: null
+  };
+  microsoftAuthFlows.set(flowId, flow);
+
+  const authUrl = new URL(MICROSOFT_AUTHORIZE_URL);
+  authUrl.searchParams.set('client_id', MICROSOFT_CLIENT_ID);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('redirect_uri', MICROSOFT_REDIRECT_URI);
+  authUrl.searchParams.set('response_mode', 'query');
+  authUrl.searchParams.set('scope', MICROSOFT_OAUTH_SCOPE);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', pkce.challenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+  authUrl.searchParams.set('prompt', 'select_account');
+
+  flow.timer = setTimeout(() => {
+    finishMicrosoftAuthFlow(flowId, { error: new Error('Microsoft login timed out. Please try again.') });
+  }, 5 * 60 * 1000);
+
+  microsoftAuthServer = http.createServer(async (request, response) => {
+    const requestUrl = new URL(request.url, MICROSOFT_REDIRECT_URI);
+    if (requestUrl.pathname !== redirectUrl.pathname) {
+      response.writeHead(404);
+      response.end('Not found');
+      return;
+    }
+
+    if (requestUrl.searchParams.get('state') !== state) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Invalid authorization state. You can close this tab and try again.');
+      return;
+    }
+
+    const oauthError = requestUrl.searchParams.get('error');
+    if (oauthError) {
+      response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      response.end('<html><body>Microsoft sign-in was cancelled or denied. You can close this tab.</body></html>');
+      finishMicrosoftAuthFlow(flowId, { error: new Error(requestUrl.searchParams.get('error_description') || oauthError) });
+      return;
+    }
+
+    const code = requestUrl.searchParams.get('code');
+    if (!code) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Authorization code was not returned.');
+      finishMicrosoftAuthFlow(flowId, { error: new Error('Microsoft did not return an authorization code.') });
+      return;
+    }
+
     try {
       const token = await requestJson('POST', MICROSOFT_TOKEN_URL, {
         timeoutMs: 12000,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
         body: formEncode({
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          grant_type: 'authorization_code',
           client_id: MICROSOFT_CLIENT_ID,
-          device_code: flow.deviceCode
+          code,
+          redirect_uri: MICROSOFT_REDIRECT_URI,
+          code_verifier: pkce.verifier
         })
       });
-      microsoftDeviceFlows.delete(flowId);
-      return token;
+      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      response.end('<html><body>Sign-in complete. You can close this tab and return to the launcher.</body></html>');
+      finishMicrosoftAuthFlow(flowId, { token });
     } catch (err) {
-      const message = String(err.responseBody?.error || err.code || err.message || '');
-      if (message.includes('authorization_pending')) continue;
-      if (message.includes('slow_down')) {
-        flow.interval += 5;
-        continue;
-      }
-      throw err;
+      response.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+      response.end('<html><body>Sign-in failed. You can close this tab and return to the launcher.</body></html>');
+      finishMicrosoftAuthFlow(flowId, { error: err });
     }
-  }
+  });
 
-  microsoftDeviceFlows.delete(flowId);
-  throw new Error('Microsoft login code expired.');
+  microsoftAuthServer.once('error', (err) => {
+    finishMicrosoftAuthFlow(flowId, { error: new Error(`Cannot listen on ${MICROSOFT_REDIRECT_URI}: ${err.message || err}`) });
+  });
+  await new Promise((resolve, reject) => {
+    microsoftAuthServer.once('listening', resolve);
+    microsoftAuthServer.once('error', reject);
+    // Do not pin this to one localhost address: browsers may choose either IPv4 or IPv6.
+    microsoftAuthServer.listen(Number(redirectUrl.port || 53682));
+  });
+  shell.openExternal(authUrl.toString()).catch(() => {});
+
+  return {
+    flowId,
+    authorizationUrl: authUrl.toString(),
+    redirectUri: MICROSOFT_REDIRECT_URI,
+    message: 'Browser opened. Finish Microsoft sign-in there; the launcher will continue automatically.'
+  };
 }
 
+async function pollMicrosoftDeviceToken(flowId) {
+  const flow = microsoftAuthFlows.get(String(flowId || ''));
+  if (!flow) {
+    throw new Error('Microsoft login flow was not found or expired.');
+  }
+
+  const result = await flow.completion;
+  microsoftAuthFlows.delete(String(flowId || ''));
+  if (result?.error) throw result.error;
+  if (!result?.token) throw new Error('Microsoft login did not return a token.');
+  return result.token;
+}
 async function refreshMicrosoftToken(refreshToken) {
   if (!MICROSOFT_CLIENT_ID || !refreshToken) {
     throw new Error('Microsoft refresh token is not available.');
