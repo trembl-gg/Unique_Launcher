@@ -1,4 +1,7 @@
 const authScreen = document.getElementById('auth-screen');
+document.addEventListener('contextmenu', event => {
+  if (!event.target.closest?.('#launch-log')) event.preventDefault();
+});
 const launcherScreen = document.getElementById('launcher-screen');
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
@@ -45,13 +48,11 @@ const windowMaximizeButton = document.getElementById('window-maximize');
 const titlebarIcon = document.getElementById('titlebar-icon');
 const navBrandIcon = document.getElementById('nav-brand-icon');
 const playerPreviewCanvas = document.getElementById('player-preview-canvas');
-const newsList = document.getElementById('news-list');
+// news panel removed
 const updateStatus = document.getElementById('update-status');
 const updateMessage = document.getElementById('update-message');
 const installUpdateButton = document.getElementById('install-update');
 const diagnosticsMessage = document.getElementById('diagnostics-message');
-const readinessStatus = document.getElementById('readiness-status');
-const readinessGrid = document.getElementById('readiness-grid');
 const apiHealthStatus = document.getElementById('api-health-status');
 const apiHealthDetail = document.getElementById('api-health-detail');
 const apiHealthCard = document.getElementById('api-health-card');
@@ -71,12 +72,14 @@ const launchInsights = {
 };
 const sectionTabs = Array.from(document.querySelectorAll('.section-tab, .rail-button'));
 const sectionButtons = Array.from(document.querySelectorAll('[data-section]'));
+const sectionPanels = Array.from(document.querySelectorAll('[data-section-panel]'));
 const settingsTabs = Array.from(document.querySelectorAll('.settings-tab'));
 const settingsGroups = Array.from(document.querySelectorAll('[data-settings-group]'));
 const buildLibrary = document.getElementById('build-library');
 const buildLibraryGrid = document.getElementById('build-library-grid');
 const buildLibraryStatus = document.getElementById('build-library-status');
 const instanceList = document.getElementById('instance-list');
+const instanceRail = document.getElementById('instance-rail');
 const refreshInstancesButton = document.getElementById('refresh-instances');
 const createInstanceButton = document.getElementById('create-instance');
 const modrinthModLoaderLabel = document.getElementById('modrinth-mod-loader-label');
@@ -100,6 +103,8 @@ const modrinthContentResults = document.getElementById('modrinth-content-results
 const modrinthImportRef = document.getElementById('modrinth-import-ref');
 const modrinthImportButton = document.getElementById('modrinth-import-button');
 const modrinthImportStatus = document.getElementById('modrinth-import-status');
+const contentManagerList = document.getElementById('content-manager-list');
+const contentManagerTabs = document.getElementById('content-manager-tabs');
 const microsoftLoginButton = document.getElementById('microsoft-login-button');
 const importExistingInstanceButton = document.getElementById('import-existing-instance');
 const importMrpackButton = document.getElementById('import-mrpack');
@@ -126,6 +131,7 @@ const fields = {
   registerTotp: document.getElementById('register-totp'),
   memoryMax: document.getElementById('memory-max'),
   memoryMaxLabel: document.getElementById('memory-max-label'),
+  profileMemoryMax: document.getElementById('profile-memory-max'),
   activeInstance: document.getElementById('active-instance'),
   instanceName: document.getElementById('instance-name'),
   instanceVersion: document.getElementById('instance-version'),
@@ -143,26 +149,35 @@ const fields = {
   capePreview: document.getElementById('cape-preview'),
   capeName: document.getElementById('cape-name'),
   hideLauncherDuringGame: document.getElementById('hide-launcher-during-game'),
+  showSnapshots: document.getElementById('show-snapshots'),
   useUniqueMods: document.getElementById('use-unique-mods'),
   profileYoutube: document.getElementById('profile-youtube'),
   profileTwitch: document.getElementById('profile-twitch'),
   appearanceTheme: document.getElementById('appearance-theme'),
+  language: document.getElementById('language-select'),
   accentColor: document.getElementById('accent-color'),
-  reduceMotion: document.getElementById('reduce-motion')
+  reduceMotion: document.getElementById('reduce-motion'),
+  wallpaperCrop: document.getElementById('wallpaper-crop-picker')
 };
 
 let activeUser = null;
 let currentSettings = null;
 let currentProfile = null;
 let systemInfo = null;
+let settingsSaveRevision = 0;
 let launchActive = false;
-let spaceAnimationFrame = null;
+let gameRunning = false;
+let launchPollTimer = null;
+let launchPollBusy = false;
+let launchRequestPending = false;
+let activeContentType = 'mods';
 let spotifyRefreshTimer = null;
 let spotifyProgressTimer = null;
 let serverRegistryRefreshTimer = null;
 let apiHealthRefreshTimer = null;
 let spotifyPlayback = null;
 let spotifyRefreshInFlight = false;
+let spotifyConnectAttempt = null;
 let buildProfileOptions = [];
 let buildInstances = [];
 let modrinthTags = null;
@@ -246,7 +261,17 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('modrinth-import-button'), 'download', document.getElementById('modrinth-import-button')?.textContent || 'Import');
   setButtonIconText(document.getElementById('refresh-instances'), 'refresh', document.getElementById('refresh-instances')?.textContent || 'Обновить');
   setButtonIconText(document.getElementById('create-instance'), 'catalog', document.getElementById('create-instance')?.textContent || 'Создать сборку');
-  setButtonIconText(document.getElementById('logout-button'), 'logout', document.getElementById('logout-button')?.textContent || 'Выйти');
+  const logoutButton = document.getElementById('logout-button');
+  if (logoutButton) {
+    const label = logoutButton.textContent.trim() || 'Выйти';
+    logoutButton.innerHTML = SVG_ICONS.logout;
+    const text = document.createElement('span');
+    text.className = 'logout-label';
+    text.textContent = label;
+    logoutButton.appendChild(text);
+    logoutButton.setAttribute('aria-label', label);
+    logoutButton.title = label;
+  }
   setButtonIconText(document.getElementById('refresh-mods'), 'refresh', document.getElementById('refresh-mods')?.textContent || 'Обновить');
   setButtonIconText(document.getElementById('refresh-content'), 'refresh', document.getElementById('refresh-content')?.textContent || 'Обновить');
   setButtonIconText(document.getElementById('open-build-library'), 'catalog', document.getElementById('open-build-library')?.textContent || 'Каталог сборок');
@@ -259,10 +284,10 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('clear-log'), 'trash', document.getElementById('clear-log')?.textContent || 'Очистить');
   setButtonIconText(document.getElementById('check-updates'), 'refresh', document.getElementById('check-updates')?.textContent || 'Проверить');
   setButtonIconText(document.getElementById('install-update'), 'download', document.getElementById('install-update')?.textContent || 'Установить');
+  setButtonIconText(document.getElementById('open-launch-logs'), 'folder', 'Папка логов');
   setButtonIconText(document.getElementById('open-logs'), 'folder', document.getElementById('open-logs')?.textContent || 'Открыть логи');
   setButtonIconText(document.getElementById('export-diagnostics'), 'report', document.getElementById('export-diagnostics')?.textContent || 'Собрать ZIP');
   setButtonIconText(document.getElementById('analyze-crash'), 'report', document.getElementById('analyze-crash')?.textContent || 'Анализ краша');
-  setButtonIconText(document.getElementById('repair-game'), 'refresh', document.getElementById('repair-game')?.textContent || 'Починить игру');
   setButtonIconText(launchButton, 'play', launchButton?.textContent || 'Запустить Fabric');
   prependTileIcon(document.getElementById('select-skin'), 'skin');
   prependTileIcon(document.getElementById('select-cape'), 'cape');
@@ -322,6 +347,17 @@ function openCustomSelect(select) {
   state.wrapper.classList.toggle('is-open', open);
   state.button.setAttribute('aria-expanded', open ? 'true' : 'false');
 
+  state.wrapper.classList.remove('opens-up');
+  if (open) {
+    requestAnimationFrame(() => {
+      const buttonRect = state.button.getBoundingClientRect();
+      const menuHeight = Math.min(state.menu.scrollHeight || 0, 230);
+      const shouldOpenUp = window.innerHeight - buttonRect.bottom < menuHeight + 12
+        && buttonRect.top > menuHeight + 12;
+      state.wrapper.classList.toggle('opens-up', shouldOpenUp);
+    });
+  }
+
   if (open) {
     const selected = state.menu.querySelector('.custom-select-option.is-selected') || state.menu.querySelector('.custom-select-option');
     selected?.scrollIntoView({ block: 'nearest' });
@@ -350,6 +386,10 @@ function enhanceCustomSelect(select) {
   menu.setAttribute('role', 'listbox');
 
   wrapper.append(button, menu);
+  if (['active-instance', 'account-switch'].includes(select.id)) {
+    wrapper.setAttribute('data-i18n-ignore', '');
+    select.setAttribute('data-i18n-ignore', '');
+  }
   select.classList.add('native-select-hidden');
   select.insertAdjacentElement('afterend', wrapper);
 
@@ -404,20 +444,17 @@ function setupCustomSelects() {
   });
 }
 
-function setAuthMode(mode) {
-  const isLogin = mode === 'login';
-  const isRegister = mode === 'register';
-  const isGuest = mode === 'guest';
-  loginForm.classList.toggle('hidden', !isLogin);
-  registerForm.classList.toggle('hidden', !isRegister);
-  guestForm?.classList.toggle('hidden', !isGuest);
-  loginTab.classList.toggle('active', isLogin);
-  registerTab.classList.toggle('active', isRegister);
-  guestTab?.classList.toggle('active', isGuest);
-  loginMessage.textContent = '';
-  registerMessage.textContent = '';
+function setAuthMode() {
+  loginForm?.classList.add('hidden');
+  registerForm?.classList.add('hidden');
+  guestForm?.classList.remove('hidden');
+  loginTab?.classList.remove('active');
+  registerTab?.classList.remove('active');
+  guestTab?.classList.add('active');
+  if (loginMessage) loginMessage.textContent = '';
+  if (registerMessage) registerMessage.textContent = '';
   if (guestMessage) guestMessage.textContent = '';
-  totpHint.textContent = '';
+  if (totpHint) totpHint.textContent = '';
 }
 
 function setMessage(element, text, type = 'error') {
@@ -456,6 +493,14 @@ function setLauncherSection(section = 'main') {
   const allowed = new Set(['main', 'library', 'mods', 'settings', 'profile']);
   const activeSection = allowed.has(section) ? section : 'main';
   launcherScreen.dataset.activeSection = activeSection;
+  activeUserLabel?.classList.toggle('is-expanded', activeSection === 'profile');
+  activeUserLabel?.setAttribute('aria-expanded', activeSection === 'profile' ? 'true' : 'false');
+
+  sectionPanels.forEach((panel) => {
+    const isActive = panel.dataset.sectionPanel === activeSection;
+    panel.classList.toggle('hidden', !isActive);
+    panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
 
   sectionTabs.forEach((button) => {
     const active = button.dataset.section === activeSection;
@@ -468,7 +513,7 @@ function setLauncherSection(section = 'main') {
     refreshSpotifyNowPlaying();
   }
   if (activeSection === 'mods') {
-    refreshMods();
+    refreshContentManager();
   }
   if (activeSection === 'library') {
     renderServerBuildResults();
@@ -476,7 +521,7 @@ function setLauncherSection(section = 'main') {
 }
 
 function setSettingsTab(tab = 'info') {
-  const allowed = new Set(['info', 'game', 'technical', 'debug']);
+  const allowed = new Set(['info', 'game', 'debug', 'experiments']);
   const activeTab = allowed.has(tab) ? tab : 'info';
 
   settingsTabs.forEach((button) => {
@@ -488,6 +533,7 @@ function setSettingsTab(tab = 'info') {
   settingsGroups.forEach((group) => {
     group.classList.toggle('hidden', group.dataset.settingsGroup !== activeTab);
   });
+  document.querySelector('.settings-panel')?.scrollTo(0, 0);
 }
 
 function getCravatarUrl(nickname, size = 96) {
@@ -505,7 +551,7 @@ function setAvatarImage(image, nickname = '', size = 96) {
 
   const displayName = String(nickname || '').trim();
   const skinName = displayName && displayName !== 'offline' ? displayName : 'Steve';
-  image.alt = displayName ? `${displayName} skin head` : '';
+  image.alt = '';
   image.decoding = 'async';
   image.referrerPolicy = 'no-referrer';
   image.classList.remove('is-empty');
@@ -517,8 +563,8 @@ function setAvatarImage(image, nickname = '', size = 96) {
       image.src = fallback;
       return;
     }
-    image.classList.add('is-empty');
-    image.removeAttribute('src');
+    image.onerror = null;
+    image.src = '../unique.png';
   };
   image.onload = () => image.classList.remove('is-empty');
   image.src = getCravatarUrl(skinName, size);
@@ -527,14 +573,13 @@ function setAvatarImage(image, nickname = '', size = 96) {
 function setAvatarImageSource(image, source, nickname = '') {
   if (!image || !source) return;
 
-  const displayName = String(nickname || '').trim();
-  image.alt = displayName ? `${displayName} skin head` : '';
+  image.alt = '';
   image.decoding = 'async';
   image.referrerPolicy = 'no-referrer';
   image.dataset.fallbackSrc = '';
   image.onerror = () => {
-    image.classList.add('is-empty');
-    image.removeAttribute('src');
+    image.onerror = null;
+    image.src = '../unique.png';
   };
   image.onload = () => image.classList.remove('is-empty');
   image.classList.remove('is-empty');
@@ -673,7 +718,7 @@ function renderServerBuildResults() {
       <article class="server-build-card">
         <div class="server-build-icon">${escapeHtml(String(profile.name || 'U').slice(0, 1).toUpperCase())}</div>
         <div>
-          <strong>${escapeHtml(server.name || 'UNIQUE Server')}</strong>
+          <strong>${escapeHtml(server.name || 'Minecraft Launcher')}</strong>
           <span>${escapeHtml(profile.name || profile.id || 'Сборка')} · ${escapeHtml(fields.minecraftVersion?.value || currentSettings?.minecraftVersion || '1.20.1')}</span>
           <small>${escapeHtml(server.motd || address || 'сервер поддерживает UNIQUE LAUNCHER')}</small>
         </div>
@@ -698,6 +743,61 @@ function getBuildProfileDescription(profile) {
   return profile?.description || 'Готовая конфигурация модов и настроек для проекта.';
 }
 
+const languageStrings = {
+  ru: { play: 'Играть', stop: 'Остановить запуск', forceStop: 'Принудительно закрыть', library: 'Каталог сборок', create: 'Создать сборку', choose: 'Выбрать', selected: 'Выбрано', remove: 'Удалить', mods: 'Моды', resourcepack: 'Текстуры', shader: 'Шейдеры', textures: 'Текстуры', shaders: 'Шейдеры', worlds: 'Миры' },
+  en: { play: 'Play', stop: 'Stop launch', forceStop: 'Force close', library: 'Instances', create: 'Create instance', choose: 'Select', selected: 'Selected', remove: 'Delete', mods: 'Mods', resourcepack: 'Textures', shader: 'Shaders', textures: 'Textures', shaders: 'Shaders', worlds: 'Worlds' },
+  es: { play: 'Jugar', stop: 'Detener inicio', forceStop: 'Forzar cierre', library: 'Instancias', create: 'Crear instancia', choose: 'Seleccionar', selected: 'Seleccionada', remove: 'Eliminar', mods: 'Mods', resourcepack: 'Texturas', shader: 'Shaders', textures: 'Texturas', shaders: 'Shaders', worlds: 'Mundos' }
+};
+
+const staticTranslations = {
+  'Назад': { en: 'Back', es: 'Atrás' },
+  'Каталог сборок': { en: 'Instances', es: 'Instancias' },
+  'Мои сборки': { en: 'My instances', es: 'Mis instancias' },
+  'Обновить': { en: 'Refresh', es: 'Actualizar' },
+  'Название': { en: 'Name', es: 'Nombre' },
+  'Версия Minecraft': { en: 'Minecraft version', es: 'Versión de Minecraft' },
+  'Создать сборку': { en: 'Create instance', es: 'Crear instancia' },
+  'Импорт папки': { en: 'Import folder', es: 'Importar carpeta' },
+  'Сборки Modrinth': { en: 'Modrinth instances', es: 'Instancias de Modrinth' },
+  'Найти сборки': { en: 'Find instances', es: 'Buscar instancias' },
+  'Моды': { en: 'Mods', es: 'Mods' },
+  'Установленные моды': { en: 'Installed mods', es: 'Mods instalados' },
+  'Открыть папку': { en: 'Open folder', es: 'Abrir carpeta' },
+  'Настройки': { en: 'Settings', es: 'Ajustes' },
+  'Внешний вид': { en: 'Appearance', es: 'Apariencia' },
+  'Язык': { en: 'Language', es: 'Idioma' },
+  'Тема': { en: 'Theme', es: 'Tema' },
+  'Выбрать': { en: 'Select', es: 'Seleccionar' },
+  'Удалить': { en: 'Delete', es: 'Eliminar' },
+  'Текстуры': { en: 'Textures', es: 'Texturas' },
+  'Шейдеры': { en: 'Shaders', es: 'Shaders' },
+  'Миры': { en: 'Worlds', es: 'Mundos' }
+};
+
+const localizer = new window.Localizer({ ...staticTranslations, ...window.extraTranslations }, () => document.documentElement.lang || 'ru');
+function translateStaticLabels(language) { localizer.refresh(); }
+function applyLanguage(language) {
+  const copy = languageStrings[language] || languageStrings.ru;
+  document.documentElement.lang = language || 'ru';
+  translateStaticLabels(language || 'ru');
+  const streamerHints = {
+    ru: 'Скрывает окно лаунчера от поддерживаемых способов захвата Windows 10 2004+ / Windows 11. Не гарантирует скрытие во всех программах. Проверьте предпросмотр перед трансляцией. Minecraft и внешние окна не скрываются.',
+    en: 'Excludes the launcher from supported Windows 10 2004+ / Windows 11 capture methods. Not guaranteed in every recorder. Check your preview before streaming. Minecraft and external windows are not hidden.',
+    es: 'Oculta el launcher en los métodos de captura compatibles de Windows 10 2004+ / Windows 11. No se garantiza en todos los grabadores. Comprueba la vista previa. Minecraft y las ventanas externas no se ocultan.'
+  };
+  document.getElementById('streamer-hint').textContent = streamerHints[language] || streamerHints.ru;
+  renderSystemMemory();
+  try { localStorage.setItem('unique-language', language); } catch { }
+  const libraryButton = document.getElementById('open-build-library');
+  if (libraryButton) setButtonIconText(libraryButton, 'catalog', copy.library);
+  setLaunchActive(launchActive, gameRunning);
+  if (createInstanceButton) createInstanceButton.textContent = copy.create;
+  document.querySelectorAll('.instance-select').forEach((button) => {
+    button.textContent = button.closest('.instance-card')?.classList.contains('active') ? copy.selected : copy.choose;
+  });
+  document.querySelectorAll('.instance-delete').forEach((button) => { button.textContent = copy.remove; });
+  document.querySelectorAll('.instance-content').forEach((button) => { button.textContent = copy[button.dataset.content] || button.textContent; });
+}
 function renderBuildCatalog() {
   if (buildLibraryGrid) {
     buildLibraryGrid.innerHTML = '';
@@ -787,6 +887,33 @@ function renderActiveInstanceSelect() {
   updateModrinthLoaderLabels();
 }
 
+function renderSelectedInstanceHeader() {
+  const instance = getActiveBuildInstance();
+  const instanceName = document.getElementById('launch-instance-name');
+  if (instanceName) instanceName.textContent = instance?.name || 'Выберите сборку';
+  if (serverInfo) serverInfo.textContent = instance ? formatLoaderName(instance.loader) + ' · Minecraft ' + instance.minecraftVersion : 'Создайте или импортируйте сборку';
+}
+function renderInstanceRail() {
+  renderSelectedInstanceHeader();
+  if (!instanceRail) return;
+
+  const activeId = currentSettings?.activeInstanceId || fields.activeInstance?.value || '';
+  if (!buildInstances.length) {
+    instanceRail.innerHTML = '<span class="instance-rail-empty" title="Создайте или импортируйте сборку">?</span>';
+    return;
+  }
+
+  instanceRail.innerHTML = buildInstances.map((instance) => {
+    const active = instance.id === activeId;
+    const label = String(instance.name || 'U').trim().slice(0, 2).toUpperCase();
+    const title = `${instance.name} — ${instance.minecraftVersion} ${formatLoaderName(instance.loader)}`;
+    return `
+      <button class="instance-rail-button ${active ? 'active' : ''}" type="button" data-instance-id="${escapeHtml(instance.id)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+        ${instance.icon ? `<img src="${escapeHtml(instance.icon)}" alt="" />` : `<span>${escapeHtml(label)}</span>`}
+      </button>
+    `;
+  }).join('');
+}
 function renderInstanceList() {
   if (!instanceList) return;
 
@@ -796,24 +923,139 @@ function renderInstanceList() {
   }
 
   const activeId = currentSettings?.activeInstanceId || fields.activeInstance?.value || '';
-  instanceList.innerHTML = buildInstances.map((instance) => {
+  const query = document.getElementById('instance-search').value.trim().toLowerCase();
+  const sort = document.getElementById('instance-sort').value;
+  const visible = buildInstances.filter(instance => `${instance.name} ${instance.minecraftVersion} ${instance.loader}`.toLowerCase().includes(query));
+  visible.sort((a, b) => sort === 'newest' ? String(b.createdAt).localeCompare(String(a.createdAt)) : (sort === 'favorite' ? Number(b.favorite) - Number(a.favorite) : 0) || a.name.localeCompare(b.name));
+  instanceList.innerHTML = visible.map((instance) => {
     const active = instance.id === activeId;
     const source = instance.source === 'modrinth' ? 'Modrinth' : instance.source === 'server' ? 'Server' : instance.source === 'imported' ? 'Imported' : 'Custom';
     return `
       <article class="instance-card ${active ? 'active' : ''}">
-        <div class="instance-icon">${escapeHtml(String(instance.name || 'U').slice(0, 2).toUpperCase())}</div>
+        <button class="instance-icon instance-edit" type="button" data-instance-id="${escapeHtml(instance.id)}" title="Изменить аватарку и название" aria-label="Изменить оформление сборки">${instance.icon ? `<img src="${escapeHtml(instance.icon)}" alt="" loading="lazy" />` : escapeHtml(String(instance.name || 'U').slice(0, 2).toUpperCase())}</button>
         <div>
-          <strong>${escapeHtml(instance.name)}</strong>
-          <span>${escapeHtml(instance.minecraftVersion)} · ${escapeHtml(formatLoaderName(instance.loader))} · ${escapeHtml(source)}</span>
+          <strong>${instance.favorite ? '★ ' : ''}${escapeHtml(instance.name)}</strong>
+          <span>${escapeHtml(instance.minecraftVersion)} · ${escapeHtml(formatLoaderName(instance.loader))} · <span>${escapeHtml(source)}</span></span>
         </div>
         <button class="tiny-button instance-select" type="button" data-instance-id="${escapeHtml(instance.id)}">
           ${active ? 'Выбрано' : 'Выбрать'}
         </button>
+        <div class="instance-content-actions" aria-label="Управление содержимым сборки">
+          <button class="tiny-button instance-edit" type="button" data-instance-id="${escapeHtml(instance.id)}">Настройки сборки</button>
+          <button class="tiny-button instance-favorite" type="button" data-instance-id="${escapeHtml(instance.id)}" aria-pressed="${Boolean(instance.favorite)}">${instance.favorite ? '★ В избранном' : '☆ В избранное'}</button>
+          <button class="tiny-button instance-content" type="button" data-instance-id="${escapeHtml(instance.id)}" data-content="mods">Моды</button>
+          <button class="tiny-button instance-content" type="button" data-instance-id="${escapeHtml(instance.id)}" data-content="resourcepack">Текстуры</button>
+          <button class="tiny-button instance-content" type="button" data-instance-id="${escapeHtml(instance.id)}" data-content="shader">Шейдеры</button>
+          <button class="tiny-button instance-content" type="button" data-instance-id="${escapeHtml(instance.id)}" data-content="worlds">Миры</button>
+        </div>
+        <button class="tiny-button instance-delete" type="button" data-instance-id="${escapeHtml(instance.id)}">Удалить</button>
       </article>
     `;
-  }).join('');
+  }).join('') || '<div class="empty-row">По запросу ничего не найдено.</div>';
 }
 
+let editingInstanceId = '';
+let editingInstanceIcon = '';
+let instanceImageRevision = 0;
+const instanceEditor = document.getElementById('instance-editor');
+function updateInstanceIconPreview() {
+  const preview = document.getElementById('instance-editor-preview');
+  preview.hidden = !editingInstanceIcon;
+  if (editingInstanceIcon) preview.src = editingInstanceIcon;
+  else preview.removeAttribute('src');
+}
+function openInstanceEditor(id) {
+  const instance = buildInstances.find(item => item.id === id);
+  if (!instance) return;
+  instanceImageRevision++;
+  editingInstanceId = id;
+  editingInstanceIcon = instance.icon || '';
+  document.getElementById('instance-editor-name').value = instance.name;
+  document.getElementById('instance-jvm-arguments').value = instance.jvmArguments || '';
+  document.getElementById('instance-game-arguments').value = instance.gameArguments || '';
+  document.getElementById('instance-editor-favorite').checked = Boolean(instance.favorite);
+  document.getElementById('instance-icon-file').value = '';
+  document.getElementById('instance-editor-error').textContent = '';
+  updateInstanceIconPreview();
+  instanceEditor.showModal();
+}
+async function updateInstanceAppearance(instanceId, changes) {
+  const result = await window.api.updateBuildInstance({ nickname: activeUser?.nickname || '', instanceId, changes });
+  if (!result.success) throw new Error(result.error || 'Не удалось сохранить сборку.');
+  buildInstances = result.instances;
+  renderActiveInstanceSelect();
+  renderInstanceList();
+  renderInstanceRail();
+}
+document.getElementById('instance-search').addEventListener('input', renderInstanceList);
+document.getElementById('instance-sort').addEventListener('change', renderInstanceList);
+document.getElementById('instance-editor-cancel').addEventListener('click', () => instanceEditor.close());
+instanceEditor.addEventListener('close', () => { instanceImageRevision++; });
+document.getElementById('instance-icon-reset').addEventListener('click', () => {
+  instanceImageRevision++; editingInstanceIcon = ''; updateInstanceIconPreview();
+});
+document.getElementById('instance-icon-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const revision = ++instanceImageRevision;
+  const errorLabel = document.getElementById('instance-editor-error');
+  errorLabel.textContent = '';
+  try {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) throw new Error('Выберите PNG, JPG или WebP до 10 МБ.');
+    const bitmap = await createImageBitmap(file, { resizeWidth: 256, resizeQuality: 'high' });
+    try {
+      if (revision !== instanceImageRevision) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 128;
+      const size = Math.min(bitmap.width, bitmap.height);
+      canvas.getContext('2d').drawImage(bitmap, (bitmap.width - size) / 2, (bitmap.height - size) / 2, size, size, 0, 0, 128, 128);
+      editingInstanceIcon = canvas.toDataURL('image/png');
+      updateInstanceIconPreview();
+    } finally { bitmap.close(); }
+  } catch (error) { if (revision === instanceImageRevision) errorLabel.textContent = error.message; }
+});
+document.getElementById('instance-editor-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.submitter;
+  if (button) button.disabled = true;
+  try {
+    await updateInstanceAppearance(editingInstanceId, {
+      name: document.getElementById('instance-editor-name').value,
+      jvmArguments: document.getElementById('instance-jvm-arguments').value,
+      gameArguments: document.getElementById('instance-game-arguments').value,
+      icon: editingInstanceIcon,
+      favorite: document.getElementById('instance-editor-favorite').checked
+    });
+    instanceEditor.close();
+  } catch (error) { document.getElementById('instance-editor-error').textContent = error.message; }
+  finally { if (button) button.disabled = false; }
+});
+
+const pendingPackIcons = new Set();
+function copyPackIcon(instance) {
+  if (instance.icon || !instance.iconSource || pendingPackIcons.has(instance.id)) return;
+  pendingPackIcons.add(instance.id);
+  const user = activeUser;
+  const image = new Image();
+  image.crossOrigin = 'anonymous';
+  const timer = setTimeout(() => { image.onload = image.onerror = null; image.src = ''; }, 10000);
+  image.onerror = () => clearTimeout(timer);
+  image.onload = async () => {
+    clearTimeout(timer);
+    if (activeUser?.sessionToken !== user?.sessionToken) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 128;
+      canvas.getContext('2d').drawImage(image, 0, 0, 128, 128);
+      const result = await window.api.updateBuildInstance({ nickname: user.nickname, instanceId: instance.id, changes: { icon: canvas.toDataURL('image/png') } });
+      if (result.success && activeUser?.sessionToken === user.sessionToken) {
+        buildInstances = result.instances;
+        renderInstanceList(); renderInstanceRail();
+      }
+    } catch { /* Keep initials if the CDN does not allow reading the image. */ }
+  };
+  image.src = instance.iconSource;
+}
 async function loadBuildInstances() {
   if (!window.api.listBuildInstances) return;
   const result = await window.api.listBuildInstances({ nickname: activeUser?.nickname || '' });
@@ -821,10 +1063,12 @@ async function loadBuildInstances() {
     buildInstances = [];
     renderActiveInstanceSelect();
     renderInstanceList();
+  renderInstanceRail();
     return;
   }
 
   buildInstances = result.instances || [];
+  buildInstances.forEach(copyPackIcon);
   if (result.activeInstanceId && currentSettings) {
     currentSettings.activeInstanceId = result.activeInstanceId;
   }
@@ -840,6 +1084,7 @@ async function loadBuildInstances() {
   }
   renderActiveInstanceSelect();
   renderInstanceList();
+  renderInstanceRail();
   updateModrinthLoaderLabels();
 }
 
@@ -863,10 +1108,18 @@ async function selectBuildInstance(instanceId) {
   applySettingsToUi();
   renderActiveInstanceSelect();
   renderInstanceList();
+  renderInstanceRail();
   await refreshMods();
   if (buildLibraryStatus) buildLibraryStatus.textContent = `Выбрана сборка ${result.instance?.name || ''}.`;
 }
 
+async function openInstanceContent(instanceId, contentType) {
+  if (launchActive) { if (buildLibraryStatus) buildLibraryStatus.textContent = 'Сначала закройте Minecraft.'; return; }
+  await selectBuildInstance(instanceId);
+  activeContentType = contentType;
+  setLauncherSection('mods');
+  await refreshContentManager();
+}
 async function createBuildInstance() {
   const minecraftVersion = fields.instanceVersion?.value || fields.minecraftVersion?.value || '1.20.1';
   const loader = fields.instanceLoader?.value || 'fabric';
@@ -889,6 +1142,7 @@ async function createBuildInstance() {
   applySettingsToUi();
   renderActiveInstanceSelect();
   renderInstanceList();
+  renderInstanceRail();
   await refreshMods();
   if (buildLibraryStatus) buildLibraryStatus.textContent = `Сборка ${result.instance?.name || ''} создана и выбрана.`;
 }
@@ -912,11 +1166,13 @@ async function importExistingInstance() {
   applySettingsToUi();
   renderActiveInstanceSelect();
   renderInstanceList();
+  renderInstanceRail();
   await refreshMods();
   if (buildLibraryStatus) buildLibraryStatus.textContent = `Imported ${result.instance?.name || folder.name}.`;
 }
 
 async function importMrpack() {
+  if (launchActive) { buildLibraryStatus.textContent = 'Сначала закройте Minecraft.'; return; }
   if (!window.api.chooseFile || !window.api.importModrinthModpack) return;
   const file = await window.api.chooseFile({ filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] });
   if (!file) return;
@@ -954,6 +1210,7 @@ async function importMrpack() {
 function openBuildLibrary() {
   renderBuildCatalog();
   renderInstanceList();
+  renderInstanceRail();
   setLauncherSection('library');
 }
 
@@ -968,7 +1225,6 @@ async function selectBuildProfile(profileId, fromCatalog = false) {
 
   fields.buildProfile.value = profileId;
   syncCustomSelect(fields.buildProfile);
-  applyBuildProfileMemory(profileId);
   await saveSettings({ buildProfile: profileId });
   if (fromCatalog && buildLibraryStatus) {
     const profile = buildProfileOptions.find((entry) => entry.id === profileId);
@@ -1663,19 +1919,58 @@ async function setWallpaperPreview(filePath) {
 
   const result = await window.api.getAssetPreview(filePath);
   if (result.success && result.preview) {
+    const position = currentSettings?.wallpaperPosition || { x: 50, y: 50 };
+    wallpaperPreview.style.setProperty('--wallpaper-position', `${position.x ?? 50}% ${position.y ?? 50}%`);
     wallpaperPreview.style.setProperty('--wallpaper', `url("${result.preview}")`);
+    if (fields.wallpaperCrop) { fields.wallpaperCrop.style.setProperty('--wallpaper', `url("${result.preview}")`); fields.wallpaperCrop.style.setProperty('--wallpaper-position', `${position.x ?? 50}% ${position.y ?? 50}%`); }
     wallpaperPreview.classList.add('has-wallpaper');
   }
 }
 
-function applyAppearance() {
-  const appearance = currentSettings?.appearance || {};
+function getAppearanceFromFields() {
+  return {
+    theme: fields.appearanceTheme?.value || currentSettings?.appearance?.theme || 'cosmic',
+    accent: fields.accentColor?.value || currentSettings?.appearance?.accent || 'violet',
+    reduceMotion: Boolean(fields.reduceMotion?.checked)
+  };
+}
+
+function applyAppearance(appearanceOverride = null) {
+  const appearance = appearanceOverride || currentSettings?.appearance || {};
   const theme = ['cosmic', 'light', 'deep', 'contrast'].includes(appearance.theme) ? appearance.theme : 'cosmic';
-  const accent = ['violet', 'cyan', 'emerald', 'rose'].includes(appearance.accent) ? appearance.accent : 'violet';
+  const accent = String(appearance.accent || '').trim() || '';
   const reduceMotion = Boolean(appearance.reduceMotion);
+  const accentText = (() => {
+    const hex = accent.replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return '#ffffff';
+    const [r, g, b] = [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+    return ((r * 299) + (g * 587) + (b * 114)) / 1000 > 150 ? '#111111' : '#ffffff';
+  })();
+  document.body.style.setProperty('--accent-text', accentText);
 
   document.body.dataset.theme = theme;
-  document.body.dataset.accent = accent;
+  // If accent is a named token, use dataset; otherwise clear dataset and apply RGB vars
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)) {
+    document.body.dataset.accent = '';
+    const hex = accent.replace('#', '');
+    const r = parseInt(hex.length === 3 ? hex[0] + hex[0] : hex.slice(0, 2), 16);
+    const g = parseInt(hex.length === 3 ? hex[1] + hex[1] : hex.slice(2, 4), 16);
+    const b = parseInt(hex.length === 3 ? hex[2] + hex[2] : hex.slice(4, 6), 16);
+    const accentRgb = `${r}, ${g}, ${b}`;
+    const lighten = (v) => Math.min(255, Math.round(v + (255 - v) * 0.28));
+    const darken = (v) => Math.max(0, Math.round(v * 0.78));
+    const rL = lighten(r), gL = lighten(g), bL = lighten(b);
+    const rD = darken(r), gD = darken(g), bD = darken(b);
+    document.body.style.setProperty('--accent', `#${hex}`);
+    document.body.style.setProperty('--accent-light', `rgb(${rL}, ${gL}, ${bL})`);
+    document.body.style.setProperty('--accent-dark', `rgb(${rD}, ${gD}, ${bD})`);
+    document.body.style.setProperty('--accent-rgb', accentRgb);
+    document.body.style.setProperty('--accent-2-rgb', `${rL}, ${gL}, ${bL}`);
+    document.body.style.setProperty('--accent-glow', `rgba(${accentRgb}, 0.22)`);
+    document.body.style.setProperty('--accent-glow-s', `rgba(${accentRgb}, 0.36)`);
+  } else {
+    document.body.dataset.accent = accent || 'violet';
+  }
   document.body.classList.toggle('reduce-motion', reduceMotion);
   const styles = getComputedStyle(document.body);
   spaceAccentRgb = styles.getPropertyValue('--accent-rgb').trim() || spaceAccentRgb;
@@ -1683,9 +1978,14 @@ function applyAppearance() {
 }
 
 function applySettingsToUi() {
+  populateMinecraftVersions();
+  document.getElementById('horizon-executable').value = currentSettings.horizonExecutable || '';
+  document.getElementById('horizon-resources').value = currentSettings.horizonResources || '';
+  applyMemoryLimit();
   const memory = currentSettings.memory;
   fields.memoryMax.value = memory.max;
   fields.memoryMaxLabel.textContent = memory.max;
+  if (fields.profileMemoryMax) fields.profileMemoryMax.value = getBuildProfileMemoryMax(currentSettings.buildProfile) || memory.max;
   fields.minecraftVersion.value = currentSettings.minecraftVersion || '1.20.1';
   if (fields.buildProfile) {
     fields.buildProfile.value = currentSettings.buildProfile || 'normal';
@@ -1695,22 +1995,43 @@ function applySettingsToUi() {
   }
   fields.fabricLoaderVersion.value = currentSettings.fabricLoaderVersion || 'latest';
   if (fields.activeInstance) fields.activeInstance.value = currentSettings.activeInstanceId || '';
-  if (fields.instanceVersion) fields.instanceVersion.value = currentSettings.minecraftVersion || '1.20.1';
+  if (fields.instanceVersion && [...fields.instanceVersion.options].some(option => option.value === currentSettings.minecraftVersion)) fields.instanceVersion.value = currentSettings.minecraftVersion;
   if (fields.instanceLoader) fields.instanceLoader.value = currentSettings.modLoader || 'fabric';
   fields.javaPath.value = currentSettings.javaPath || '';
+  if (fields.showSnapshots) fields.showSnapshots.checked = currentSettings.showSnapshots === true;
   fields.skinModel.value = currentSettings.skinModel || 'auto';
   if (fields.appearanceTheme) fields.appearanceTheme.value = currentSettings.appearance?.theme || 'cosmic';
-  if (fields.accentColor) fields.accentColor.value = currentSettings.appearance?.accent || 'violet';
+  if (fields.language) fields.language.value = currentSettings.language || 'ru';
+  applyLanguage(currentSettings.language || 'ru');
+  if (fields.accentColor) {
+    const acc = String(currentSettings.appearance?.accent || '');
+    if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(acc)) {
+      fields.accentColor.value = acc;
+    } else {
+      const map = { violet: '#8b5cf6', cyan: '#06b6d4', emerald: '#10b981', rose: '#f43f5e' };
+      fields.accentColor.value = map[acc] || '#8b5cf6';
+    }
+  }
   if (fields.reduceMotion) fields.reduceMotion.checked = Boolean(currentSettings.appearance?.reduceMotion);
   versionLabel.textContent = fields.minecraftVersion.value;
-  serverInfo.textContent = currentSettings.server.name || 'UNIQUE Server';
+  serverInfo.textContent = currentSettings.server.name || 'Minecraft Launcher';
   serverLabel.textContent = currentSettings.server.name;
   fields.hideLauncherDuringGame.checked = Boolean(currentSettings.hideLauncherDuringGame);
   if (fields.useUniqueMods) fields.useUniqueMods.checked = currentSettings.useUniqueMods !== false;
   wallpaperName.textContent = currentSettings.wallpaper ? shortPath(currentSettings.wallpaper) : 'обои не выбраны';
+  const wallpaperPosition = currentSettings.wallpaperPosition || { x: 50, y: 50 };
+  if (fields.wallpaperCrop) fields.wallpaperCrop.style.setProperty('--wallpaper-position', `${wallpaperPosition.x ?? 50}% ${wallpaperPosition.y ?? 50}%`);
+  document.getElementById('wallpaper-crop-controls')?.classList.toggle('hidden', !currentSettings.wallpaper);
   fields.skinName.textContent = currentSettings.skin ? shortPath(currentSettings.skin) : 'не выбран';
   fields.capeName.textContent = currentSettings.cape ? shortPath(currentSettings.cape) : 'не выбран';
   applyAppearance();
+  document.getElementById('spotify-theme').checked = Boolean(currentSettings.experiments?.spotifyTheme);
+  document.getElementById('rust-minecraft').checked = Boolean(currentSettings.experiments?.rustMinecraft);
+  syncHorizonControls();
+  document.getElementById('music-visualizer').checked = Boolean(currentSettings.experiments?.visualizer);
+  document.getElementById('streamer-mode').checked = Boolean(currentSettings.experiments?.streamerMode);
+  applyStreamerMode(Boolean(currentSettings.experiments?.streamerMode));
+  experiments.configure(currentSettings.experiments);
   updateLaunchInsights();
   syncAllCustomSelects();
   updateModrinthLoaderLabels();
@@ -1718,6 +2039,7 @@ function applySettingsToUi() {
 }
 
 function updateLaunchInsights(serverName = '') {
+  renderSelectedInstanceHeader();
   if (launchInsights.version) {
     launchInsights.version.textContent = fields.minecraftVersion?.value?.trim() || currentSettings?.minecraftVersion || '1.20.1';
   }
@@ -1739,6 +2061,8 @@ function getBuildProfileMemoryMax(profileId) {
   const id = String(profileId || '').trim();
   const profile = buildProfileOptions.find((entry) => entry.id === id)
     || systemInfo?.buildProfiles?.find?.((entry) => entry.id === id);
+  const custom = Number(currentSettings?.memoryProfiles?.[id] || 0);
+  if (custom > 0) return custom;
   const memory = Number(profile?.memoryMaxMb || 0);
   return Number.isFinite(memory) && memory > 0 ? memory : 0;
 }
@@ -1780,29 +2104,34 @@ async function refreshPreviews() {
 }
 
 async function saveSettings(partial = {}) {
+  const revision = ++settingsSaveRevision;
   const max = Number(fields.memoryMax.value);
   currentSettings = {
     ...currentSettings,
     ...partial,
     loader: 'Fabric',
-    fabricLoaderVersion: fields.fabricLoaderVersion.value.trim() || 'latest',
+    fabricLoaderVersion: partial.fabricLoaderVersion || fields.fabricLoaderVersion.value.trim() || 'latest',
     memory: {
       min: 1024,
       max
     },
     skinModel: fields.skinModel.value || 'auto',
-    minecraftVersion: fields.minecraftVersion.value.trim() || '1.20.1',
+    minecraftVersion: partial.minecraftVersion || fields.minecraftVersion.value.trim() || '1.20.1',
     activeInstanceId: fields.activeInstance?.value || currentSettings?.activeInstanceId || '',
     modLoader: getSelectedModLoader(),
     projectId: fields.projectId?.value || currentSettings?.projectId || 'unique',
     buildProfile: fields.buildProfile?.value || currentSettings?.buildProfile || 'normal',
     javaPath: fields.javaPath.value.trim(),
     hideLauncherDuringGame: fields.hideLauncherDuringGame.checked,
+    showSnapshots: fields.showSnapshots?.checked === true,
     useUniqueMods: fields.useUniqueMods ? fields.useUniqueMods.checked : currentSettings?.useUniqueMods !== false,
-    appearance: {
-      theme: fields.appearanceTheme?.value || currentSettings?.appearance?.theme || 'cosmic',
-      accent: fields.accentColor?.value || currentSettings?.appearance?.accent || 'violet',
-      reduceMotion: Boolean(fields.reduceMotion?.checked)
+    language: fields.language?.value || currentSettings?.language || 'ru',
+    appearance: getAppearanceFromFields(),
+    experiments: {
+      rustMinecraft: document.getElementById('rust-minecraft').checked,
+      spotifyTheme: document.getElementById('spotify-theme').checked,
+      visualizer: document.getElementById('music-visualizer').checked,
+      streamerMode: document.getElementById('streamer-mode').checked
     }
   };
 
@@ -1810,18 +2139,47 @@ async function saveSettings(partial = {}) {
     nickname: activeUser?.nickname || '',
     settings: currentSettings
   });
-  if (result.success) {
+  if (result.success && revision === settingsSaveRevision) {
     currentSettings = result.settings;
     applySettingsToUi();
   }
 }
 
+let contentRefreshRevision = 0;
+async function refreshContentManager() {
+  const revision = ++contentRefreshRevision;
+  if (!contentManagerList) return;
+  const contentLabels = { mods: 'Моды', resourcepack: 'Текстуры', shader: 'Шейдеры', worlds: 'Миры' };
+  const contentLabel = contentLabels[activeContentType] || 'Содержимое';
+  const heading = document.querySelector('[data-section-panel="mods"] .view-header h2');
+  const searchHeading = document.querySelector('[data-section-panel="mods"] .section-head.compact h3');
+  if (heading) heading.textContent = contentLabel;
+  if (searchHeading) searchHeading.textContent = contentLabel + ' · Modrinth';
+  if (modrinthModSearch) modrinthModSearch.placeholder = activeContentType === 'mods' ? 'Sodium, Iris, JourneyMap...' : contentLabel;
+  if (checkModrinthUpdatesButton) checkModrinthUpdatesButton.classList.toggle('hidden', activeContentType !== 'mods');
+  const title = document.querySelector('.installed-mods-panel h3');
+  if (title) title.textContent = ({ mods: 'Моды сборки', resourcepack: 'Текстуры сборки', shader: 'Шейдеры сборки', worlds: 'Миры сборки' })[activeContentType] || 'Содержимое сборки';
+  contentManagerTabs?.querySelectorAll('[data-content-tab]').forEach((button) => { const active = button.dataset.contentTab === activeContentType; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
+  if (activeContentType === 'mods') { contentManagerList.classList.add('hidden'); if (modrinthInstalledMods) modrinthInstalledMods.classList.remove('hidden'); await refreshMods(); return; }
+  if (modrinthInstalledMods) modrinthInstalledMods.classList.add('hidden'); contentManagerList.classList.remove('hidden');
+  const instanceId = currentSettings?.activeInstanceId;
+  const result = await window.api.listGameContent({ type: activeContentType, instanceId, nickname: activeUser?.nickname });
+  if (revision !== contentRefreshRevision || instanceId !== currentSettings?.activeInstanceId) return;
+  contentManagerList.innerHTML = result.success && result.items.length ? result.items.map((item) => `<li class="mod-row"><div><strong>${escapeHtml(item.baseName)}</strong><small>${item.sizeMb} MB${item.enabled ? '' : ' · disabled'}</small></div><div class="mod-row-actions"><button class="mod-toggle ${item.enabled ? 'active' : ''}" type="button" data-content-name="${escapeHtml(item.name)}"><span></span></button><button class="icon-button content-delete" type="button" data-content-name="${escapeHtml(item.name)}" title="Delete">${SVG_ICONS.trash.replace('button-icon', '')}</button></div></li>`).join('') : `<li class="empty-row">${escapeHtml(result.error || 'Пока ничего не установлено.')}</li>`;
+  contentManagerTabs?.querySelectorAll('[data-content-tab]').forEach((button) => button.classList.toggle('active', button.dataset.contentTab === activeContentType));
+
+}
+let modsRefreshRevision = 0;
 async function refreshMods() {
+  const revision = ++modsRefreshRevision;
+  const instanceId = currentSettings?.activeInstanceId;
   const result = await window.api.listMods({
+    instanceId,
     nickname: activeUser?.nickname || '',
     minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1',
     buildProfile: currentSettings?.buildProfile || fields.buildProfile?.value || 'normal'
   });
+  if (revision !== modsRefreshRevision || instanceId !== currentSettings?.activeInstanceId) return;
   if (modsList) modsList.innerHTML = '';
   if (modrinthInstalledMods) modrinthInstalledMods.innerHTML = '';
 
@@ -1829,13 +2187,13 @@ async function refreshMods() {
     const errorHtml = `<li class="empty-row">Ошибка: ${escapeHtml(result.error)}</li>`;
     if (modsList) modsList.innerHTML = errorHtml;
     if (modrinthInstalledMods) modrinthInstalledMods.innerHTML = errorHtml;
-    authModsCount.textContent = '0';
+    if (authModsCount) authModsCount.textContent = '0';
     return;
   }
 
-  authModsCount.textContent = String(result.mods.length);
+  if (authModsCount) authModsCount.textContent = String(result.mods.length);
   if (result.userModsFolder) {
-    modsFolder.textContent = 'Служебные моды UNIQUE проверяются автоматически. Здесь отображаются только пользовательские моды.';
+    modsFolder.textContent = 'Моды выбранной сборки';
   }
 
   if (result.mods.length === 0) {
@@ -1885,7 +2243,7 @@ function renderProjects(projects = []) {
   if (!fields.projectId) return;
   const selected = currentSettings?.projectId || fields.projectId.value || 'unique';
   fields.projectId.innerHTML = '';
-  const list = projects.length ? projects : [{ id: 'unique', name: 'UNIQUE Server', description: 'Main project' }];
+  const list = projects.length ? projects : [{ id: 'unique', name: 'Minecraft Launcher', description: 'Main project' }];
   for (const project of list) {
     const option = document.createElement('option');
     option.value = project.id;
@@ -1911,19 +2269,19 @@ function renderRegisteredServers(servers = []) {
 
   if (!liveServers.length) {
     serverRegistryList.innerHTML = '';
-    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'Minecraft Launcher');
     renderServerBuildResults();
     return;
   }
 
   const primary = liveServers[0];
   if (serverInfo) {
-    serverInfo.textContent = primary.name || 'UNIQUE Server';
+    serverInfo.textContent = primary.name || 'Minecraft Launcher';
   }
   if (serverLabel) {
-    serverLabel.textContent = primary.name || 'UNIQUE Server';
+    serverLabel.textContent = primary.name || 'Minecraft Launcher';
   }
-  updateLaunchInsights(primary.name || 'UNIQUE Server');
+  updateLaunchInsights(primary.name || 'Minecraft Launcher');
 
   serverRegistryList.innerHTML = liveServers.slice(0, 5).map((server, index) => {
     const address = formatServerAddress(server);
@@ -1935,7 +2293,7 @@ function renderRegisteredServers(servers = []) {
         <button class="icon-button server-copy" type="button" data-address="${escapeHtml(address)}" aria-label="Скопировать адрес" title="Скопировать адрес">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h9a1 1 0 0 1 1 1v1" /></svg>
         </button>
-        <strong>${escapeHtml(server.name || 'UNIQUE Server')}</strong>
+        <strong>${escapeHtml(server.name || 'Minecraft Launcher')}</strong>
         <span>Сервер проекта</span>
         <small>${players} игроков · TPS ${tps}</small>
         ${motd}
@@ -1948,7 +2306,7 @@ function renderRegisteredServers(servers = []) {
     serverHealthDetail,
     'ok',
     `${liveServers.length} онлайн`,
-    primary.name || 'UNIQUE Server'
+    primary.name || 'Minecraft Launcher'
   );
   renderServerBuildResults();
 }
@@ -1964,14 +2322,14 @@ async function refreshRegisteredServers() {
 
     if (!result?.success) {
       serverRegistryList.innerHTML = '';
-      setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+      setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'Minecraft Launcher');
       return;
     }
 
     renderRegisteredServers(result.servers || []);
   } catch (err) {
     serverRegistryList.innerHTML = '';
-    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'UNIQUE Server');
+    setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'idle', 'ожидание', 'Minecraft Launcher');
   }
 }
 
@@ -1993,24 +2351,6 @@ async function copyServerAddress(address) {
   if (!address) return;
   await window.api.copyText(address);
   setStatusCard(serversHealthCard, serverHealthStatus, serverHealthDetail, 'ok', 'скопировано', 'адрес сервера');
-}
-
-function renderReadiness() {
-  if (!readinessGrid) return;
-  const checks = [
-    { label: 'Java 17+', ok: Boolean(systemInfo?.recommendedJava?.major >= 17), detail: systemInfo?.recommendedJava?.path || 'not found' },
-    { label: 'Remote API', ok: Boolean(systemInfo?.remoteAuth), detail: systemInfo?.remoteAuth ? 'configured' : 'local fallback' },
-    { label: 'Mod manifest', ok: Boolean(systemInfo?.remoteMods), detail: systemInfo?.remoteMods ? 'remote' : 'fallback' },
-    { label: 'Update feed', ok: Boolean(systemInfo?.updateUrlConfigured), detail: systemInfo?.updateUrlConfigured ? 'configured' : 'not configured' }
-  ];
-  const readyCount = checks.filter((check) => check.ok).length;
-  if (readinessStatus) readinessStatus.textContent = `${readyCount}/${checks.length}`;
-  readinessGrid.innerHTML = checks.map((check) => `
-    <div class="readiness-item ${check.ok ? 'ok' : 'warn'}">
-      <strong>${escapeHtml(check.label)}</strong>
-      <span>${escapeHtml(check.detail)}</span>
-    </div>
-  `).join('');
 }
 
 function setStatusCard(card, statusElement, detailElement, state, status, detail) {
@@ -2056,6 +2396,7 @@ function renderCommandCenter() {
 }
 
 async function refreshApiHealth() {
+  return; // The UNIQUE API service has been removed.
   if (!window.api.checkApiHealth) return;
   setStatusCard(apiHealthCard, apiHealthStatus, apiHealthDetail, 'idle', 'проверка', 'UNIQUE API');
 
@@ -2101,11 +2442,11 @@ async function rescanJava() {
     fields.javaPath.value = result.recommendedJava.path;
     await saveSettings();
   }
-  renderReadiness();
   renderCommandCenter();
 }
 
 function startApiHealthRefresh() {
+  return;
   if (apiHealthRefreshTimer) {
     clearInterval(apiHealthRefreshTimer);
   }
@@ -2119,35 +2460,12 @@ function stopApiHealthRefresh() {
   }
 }
 
-function renderNews(news = []) {
-  if (!newsList) return;
-  newsList.innerHTML = '';
-  if (!news.length) {
-    newsList.innerHTML = '<div class="news-item muted">Новостей пока нет.</div>';
-    return;
-  }
-  for (const item of news.slice(0, 4)) {
-    const card = document.createElement(item.url ? 'a' : 'div');
-    card.className = 'news-item';
-    if (item.url) {
-      card.href = item.url;
-      card.target = '_blank';
-      card.rel = 'noreferrer';
-    }
-    card.innerHTML = `
-      <strong>${escapeHtml(item.title)}</strong>
-      <span>${escapeHtml(item.date || '')}</span>
-      <p>${escapeHtml(item.body || '')}</p>
-    `;
-    newsList.appendChild(card);
-  }
-}
+// renderNews removed (news panel removed)
 
 async function refreshLauncherContent() {
   const result = await window.api.getLauncherContent();
   renderBuildProfiles(result.buildProfiles || systemInfo?.buildProfiles || []);
   renderProjects(result.projects || systemInfo?.projects || []);
-  renderNews(result.news || systemInfo?.news || []);
 }
 
 function escapeHtml(value) {
@@ -2188,11 +2506,12 @@ function renderInstalledModsList(target, mods = []) {
   for (const mod of mods) {
     const item = document.createElement('li');
     item.className = mod.enabled === false ? 'disabled-mod' : '';
-    const name = mod.baseName || mod.name;
+    const name = mod.displayName || (mod.baseName || mod.name).replace(/\.jar$/i, '');
     item.innerHTML = `
       <div class="mod-row-main">
+        ${mod.iconUrl ? `<img class="mod-artwork" src="${escapeHtml(mod.iconUrl)}" alt="" loading="lazy" />` : '<span class="mod-artwork mod-artwork-fallback">◇</span>'}
         <span>${escapeHtml(name)}</span>
-        <small>user | ${escapeHtml(mod.sizeMb)} MB${mod.enabled === false ? ' | disabled' : ''}</small>
+        <small>${escapeHtml(mod.sizeMb)} MB <span>${mod.enabled === false ? 'disabled' : ''}</span></small>
       </div>
       <div class="mod-row-actions">
         <button class="mod-toggle ${mod.enabled === false ? '' : 'active'}" type="button" data-mod-name="${escapeHtml(mod.name)}" aria-label="Toggle mod">
@@ -2220,7 +2539,7 @@ function renderModrinthProjects(container, projects = [], type = 'mod') {
     : projectType === 'mod'
       ? 'modrinth-install-mod'
       : 'modrinth-install-project';
-  const installText = type === 'modpack' ? 'Установить сборку' : 'Установить мод';
+  const installText = ({ modpack: 'Установить сборку', mod: 'Установить мод', resourcepack: 'Установить текстуры', shader: 'Установить шейдер' })[projectType] || 'Установить';
   container.innerHTML = projects.map((project) => {
     const icon = project.iconUrl
       ? `<img class="modrinth-card-icon" src="${escapeHtml(project.iconUrl)}" alt="" referrerpolicy="no-referrer" />`
@@ -2390,21 +2709,31 @@ async function loadModrinthTags() {
   return modrinthTags;
 }
 
+let modrinthSearchRevision = 0;
 async function searchModrinthMods() {
+  const revision = ++modrinthSearchRevision;
+  const contentType = activeContentType;
+  const instanceId = currentSettings?.activeInstanceId;
   const loader = getSelectedModLoader();
-  if (loader === 'vanilla') {
+  if (contentType === 'worlds') {
+    setStatusText(modrinthModStatus, 'Каталог миров пока не подключён.');
+    return;
+  }
+  if (loader === 'vanilla' && contentType === 'mods') {
     setStatusText(modrinthModStatus, 'Vanilla-сборка не поддерживает установку client mods.', 'error');
     renderModrinthProjects(modrinthModResults, []);
     return;
   }
-  setStatusText(modrinthModStatus, 'Ищу моды на Modrinth...');
-  const result = await window.api.searchModrinth({
-    type: 'mod',
+  setStatusText(modrinthModStatus, contentType === 'mods' ? 'Ищу моды на Modrinth...' : contentType === 'shader' ? 'Ищу шейдеры на Modrinth...' : 'Ищу текстур-паки на Modrinth...');
+  let result;
+  try { result = await window.api.searchModrinth({
+    type: contentType === 'mods' ? 'mod' : contentType,
     query: modrinthModSearch?.value || '',
     minecraftVersion: getSelectedMinecraftVersion(),
     loader,
     limit: 16
-  });
+  }); } catch (error) { result = { success: false, error: error.message }; }
+  if (revision !== modrinthSearchRevision || contentType !== activeContentType || instanceId !== currentSettings?.activeInstanceId) return;
 
   if (!result.success) {
     setStatusText(modrinthModStatus, result.error || 'Не удалось выполнить поиск Modrinth.', 'error');
@@ -2412,17 +2741,12 @@ async function searchModrinthMods() {
     return;
   }
 
-  renderModrinthProjects(modrinthModResults, result.projects || [], 'mod');
+  renderModrinthProjects(modrinthModResults, result.projects || [], contentType === 'mods' ? 'mod' : contentType);
   setStatusText(modrinthModStatus, `Найдено: ${result.totalHits || result.projects?.length || 0}. Версия: ${getSelectedMinecraftVersion()}.`, 'success');
 }
 
 async function searchModrinthPacks() {
   const loader = getSelectedPackLoader();
-  if (loader === 'vanilla') {
-    setStatusText(modrinthPackStatus, 'Vanilla modpacks on Modrinth do not use a modloader filter. Select Fabric, Forge, NeoForge or Quilt.', 'error');
-    renderModrinthProjects(modrinthPackResults, [], 'modpack');
-    return;
-  }
 
   setStatusText(modrinthPackStatus, 'Ищу сборки на Modrinth...');
   const result = await window.api.searchModrinth({
@@ -2463,9 +2787,10 @@ async function searchModrinthContent() {
   setStatusText(modrinthContentStatus, `Found: ${result.totalHits || result.projects?.length || 0}.`, 'success');
 }
 
-async function importModrinthByRef() {
+async function importModrinthByRef(inputRef = '') {
+  if (launchActive) { buildLibraryStatus.textContent = 'Сначала закройте Minecraft.'; return; }
   if (!window.api.importModrinthProject) return;
-  const ref = modrinthImportRef?.value?.trim();
+  const ref = typeof inputRef === 'string' && inputRef.trim() ? inputRef.trim() : modrinthImportRef?.value?.trim();
   if (!ref) {
     setStatusText(modrinthImportStatus, 'Enter a Modrinth URL, slug, or project id.', 'error');
     return;
@@ -2481,6 +2806,7 @@ async function importModrinthByRef() {
 
   if (!result.success) {
     setStatusText(modrinthImportStatus, result.error || 'Modrinth import failed.', 'error');
+    buildLibraryStatus.textContent = result.error || 'Не удалось импортировать сборку.';
     return;
   }
 
@@ -2506,37 +2832,42 @@ async function importModrinthByRef() {
     `Imported ${result.project?.title || result.packName || ref}: ${result.installedCount || 0} files.`,
     'success'
   );
+  buildLibraryStatus.textContent = `Импортирована сборка ${result.packName || result.project?.title || ref}.`;
 }
 
 async function installModrinthProject(button) {
   if (!button || !window.api.installModrinthProject) return;
   const previousText = button.textContent;
+  const status = button.closest('#modrinth-mod-results') ? modrinthModStatus : modrinthContentStatus;
   const type = normalizeModrinthProjectType(button.dataset.projectType || getSelectedContentType());
   button.disabled = true;
   button.textContent = 'Installing...';
-  setStatusText(modrinthContentStatus, `Installing ${formatModrinthProjectType(type)}...`);
-  const result = await window.api.installModrinthProject({
+  setStatusText(status, `Installing ${formatModrinthProjectType(type)}...`);
+  let result;
+  try { result = await window.api.installModrinthProject({
     nickname: activeUser?.nickname || '',
+    instanceId: currentSettings?.activeInstanceId,
     projectId: button.dataset.projectId,
     slug: button.dataset.projectSlug,
     type,
     versionId: button.dataset.versionId || '',
     minecraftVersion: getSelectedMinecraftVersion()
-  });
+  }); } catch (error) { result = { success: false, error: error.message }; }
 
   button.disabled = false;
   button.textContent = previousText;
 
   if (!result.success) {
-    setStatusText(modrinthContentStatus, result.error || 'Modrinth install failed.', 'error');
+    setStatusText(status, result.error || 'Modrinth install failed.', 'error');
     return;
   }
 
   setStatusText(
-    modrinthContentStatus,
+    status,
     `${formatModrinthProjectType(type)} installed: ${result.installed?.[0]?.name || result.installedCount || 1}.`,
     'success'
   );
+  await refreshContentManager();
 }
 
 async function installModrinthMod(button) {
@@ -2700,6 +3031,15 @@ function renderSpotifyProgress() {
 }
 
 function setSpotifyPlayback(nowPlaying = null) {
+  experiments.updateTrack(nowPlaying);
+  const cover = document.getElementById('spotify-cover');
+  if (cover) {
+    const url = nowPlaying?.coverUrl || '';
+    cover.classList.toggle('hidden', !url);
+    cover.onerror = () => cover.classList.add('hidden');
+    if (url) { if (cover.getAttribute('src') !== url) cover.src = url; }
+    else cover.removeAttribute('src');
+  }
   const durationMs = Number(nowPlaying?.durationMs || 0);
   if (!durationMs) {
     spotifyPlayback = null;
@@ -2771,18 +3111,55 @@ async function saveProfileLinks() {
 }
 
 async function connectSpotify() {
-  if (!activeUser) return;
-
+  if (!activeUser || spotifyConnectAttempt) return;
+  const attempt = { nickname: activeUser.nickname, flowId: null };
+  spotifyConnectAttempt = attempt;
+  const button = document.getElementById('connect-spotify');
+  const cancel = document.getElementById('cancel-spotify');
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
   spotifyNowPlaying.textContent = 'Открой браузер и разреши доступ Spotify...';
-  const result = await window.api.connectSpotify({ nickname: activeUser.nickname });
-  if (!result.success) {
-    spotifyNowPlaying.textContent = result.error;
-    return;
+  try {
+    const flow = await window.api.connectSpotify({ nickname: attempt.nickname });
+    if (!flow.success) throw new Error(flow.error);
+    attempt.flowId = flow.flowId;
+    if (spotifyConnectAttempt !== attempt || activeUser?.nickname !== attempt.nickname) {
+      await window.api.cancelSpotifyAuth(attempt);
+      return;
+    }
+    cancel.classList.remove('hidden');
+    await window.api.openExternal(flow.authorizationUrl);
+    const result = await window.api.completeSpotifyAuth(attempt);
+    if (spotifyConnectAttempt !== attempt || activeUser?.nickname !== attempt.nickname) return;
+    if (!result.success) throw new Error(result.error);
+    currentProfile = result.profile;
+    applyProfileToUi();
+    await refreshSpotifyNowPlaying();
+  } catch (error) {
+    if (spotifyConnectAttempt === attempt && activeUser?.nickname === attempt.nickname) {
+      spotifyNowPlaying.textContent = error.message || 'Не удалось привязать Spotify. Попробуйте ещё раз.';
+    }
+    if (attempt.flowId) await window.api.cancelSpotifyAuth(attempt).catch(() => {});
+  } finally {
+    if (spotifyConnectAttempt === attempt) {
+      spotifyConnectAttempt = null;
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      cancel.classList.add('hidden');
+    }
   }
+}
 
-  currentProfile = result.profile;
-  applyProfileToUi();
-  await refreshSpotifyNowPlaying();
+async function cancelSpotifyConnection() {
+  const attempt = spotifyConnectAttempt;
+  if (!attempt) return;
+  spotifyConnectAttempt = null;
+  const button = document.getElementById('connect-spotify');
+  button.disabled = false;
+  button.removeAttribute('aria-busy');
+  document.getElementById('cancel-spotify').classList.add('hidden');
+  spotifyNowPlaying.textContent = 'Привязка Spotify отменена.';
+  if (attempt.flowId) await window.api.cancelSpotifyAuth(attempt).catch(() => {});
 }
 
 async function disconnectSpotify() {
@@ -2801,9 +3178,11 @@ async function refreshSpotifyNowPlaying() {
   if (!activeUser || !currentProfile?.spotifyConnected) return;
   if (spotifyRefreshInFlight) return;
 
+  const nickname = activeUser.nickname;
   spotifyRefreshInFlight = true;
   try {
-    const result = await window.api.getSpotifyNowPlaying({ nickname: activeUser.nickname });
+    const result = await window.api.getSpotifyNowPlaying({ nickname });
+    if (activeUser?.nickname !== nickname || !currentProfile?.spotifyConnected) return;
     if (!result.success) {
       if (result.code === 'SPOTIFY_RECONNECT_REQUIRED' && result.profile) {
         currentProfile = result.profile;
@@ -2819,6 +3198,11 @@ async function refreshSpotifyNowPlaying() {
     spotifyStatus.textContent = result.nowPlaying.connected
       ? (result.nowPlaying.playing ? 'слушает' : 'пауза')
       : 'не привязан';
+  } catch (error) {
+    if (activeUser?.nickname === nickname && currentProfile?.spotifyConnected) {
+      spotifyNowPlaying.textContent = error.message || 'Не удалось обновить Spotify.';
+      setSpotifyPlayback(null);
+    }
   } finally {
     spotifyRefreshInFlight = false;
   }
@@ -2854,12 +3238,11 @@ function populateMinecraftVersions() {
 
   const selectedVersion = currentSettings?.minecraftVersion || select.value || '1.20.1';
   const versions = Array.isArray(systemInfo?.supportedVersions) ? [...systemInfo.supportedVersions] : [];
-  if (!versions.includes(selectedVersion)) {
-    versions.unshift(selectedVersion);
-  }
+  if (currentSettings?.showSnapshots) versions.unshift(...(systemInfo?.snapshotVersions || []));
+  const launchVersions = versions.includes(selectedVersion) ? versions : [selectedVersion, ...versions];
 
   select.textContent = '';
-  for (const version of versions) {
+  for (const version of launchVersions) {
     const option = document.createElement('option');
     option.value = version;
     option.textContent = version;
@@ -2876,7 +3259,7 @@ function populateMinecraftVersions() {
       option.textContent = version;
       fields.instanceVersion.appendChild(option);
     }
-    fields.instanceVersion.value = selectedVersion;
+    fields.instanceVersion.value = versions.includes(selectedVersion) ? selectedVersion : versions[0] || '1.20.1';
     syncCustomSelect(fields.instanceVersion);
   }
 
@@ -2893,6 +3276,27 @@ function populateMinecraftVersions() {
   }
 }
 
+function applyMemoryLimit() {
+  const cap = Number(systemInfo?.maxGameMemoryMb) || (systemInfo?.totalMemoryMb ? Math.max(1024, Math.floor((systemInfo.totalMemoryMb - Math.max(1024, Math.min(2048, systemInfo.totalMemoryMb / 4))) / 256) * 256) : Number(fields.memoryMax.max));
+  fields.memoryMax.max = String(cap);
+  if (currentSettings?.memory) currentSettings.memory.max = Math.max(1024, Math.min(cap, Number(currentSettings.memory.max) || 4096));
+}
+function renderSystemMemory() {
+  if (!systemMemory || !systemInfo) return;
+  const lang = document.documentElement.lang || 'ru';
+  const words = ({ ru: ['Установлено', 'доступно Windows', 'свободно', 'ГБ', 'Гц'], en: ['Installed', 'usable by Windows', 'free', 'GB', 'Hz'], es: ['Instalada', 'utilizable por Windows', 'libre', 'GB', 'Hz'] })[lang] || ['Installed', 'usable', 'free', 'GB', 'Hz'];
+  const format = value => Number.isFinite(Number(value)) && value != null ? new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(value / 1024) : '—';
+  systemMemory.textContent = `${words[0]}: ${format(systemInfo.installedMemoryMb ?? systemInfo.totalMemoryMb)} ${words[3]} · ${systemInfo.refreshRate || '—'} ${words[4]}`;
+  systemMemory.title = `${words[1]}: ${format(systemInfo.totalMemoryMb)} ${words[3]}; ${words[2]}: ${format(systemInfo.availableMemoryMb)} ${words[3]}; ${systemInfo.monitorName || ''}`;
+}
+function updateHardwareInfo(data) {
+  systemInfo = { ...systemInfo, ...data };
+  applyMemoryLimit(); renderSystemMemory();
+  if (currentSettings?.memory) { fields.memoryMax.value = currentSettings.memory.max; fields.memoryMaxLabel.textContent = currentSettings.memory.max; }
+}
+window.api.onHardwareInfo?.(updateHardwareInfo);
+window.addEventListener('focus', () => { window.api.getHardwareInfo?.().then(updateHardwareInfo).catch(() => {}); });
+
 async function loadAppState() {
   systemInfo = await window.api.getSystemInfo();
   currentSettings = await window.api.getSettings({ nickname: activeUser?.nickname || '' });
@@ -2900,33 +3304,37 @@ async function loadAppState() {
     currentSettings.javaPath = systemInfo.recommendedJava.path;
   }
   modsFolder.textContent = systemInfo.modsFolder;
-  systemMemory.textContent = `${systemInfo.totalMemoryMb} МБ RAM | ${systemInfo.refreshRate} Hz`;
+  renderSystemMemory();
   populateMinecraftVersions();
   await loadBuildInstances();
   renderBuildProfiles(systemInfo.buildProfiles || []);
   renderProjects(systemInfo.projects || []);
-  renderNews(systemInfo.news || []);
-  renderReadiness();
   renderCommandCenter();
   applySettingsToUi();
-  modsFolder.textContent = 'Служебные моды UNIQUE скрыты и проверяются по SHA-256 перед запуском.';
+  modsFolder.textContent = 'Моды выбранной сборки';
   await Promise.all([
     refreshLauncherContent(),
     refreshMods(),
     refreshPreviews(),
     loadProfile(),
-    refreshRegisteredServers(),
-    refreshApiHealth(),
     loadModrinthTags().catch(() => null)
   ]);
   startSpotifyRefresh();
-  startServerRegistryRefresh();
-  startApiHealthRefresh();
 }
 
+async function refreshAccountSwitcher() {
+  const select = document.getElementById('account-switch');
+  if (!select || !window.api.listAccounts) return;
+  const result = await window.api.listAccounts();
+  select.innerHTML = (result.accounts || []).map((account) => `<option value="${escapeHtml(account.sessionToken)}">${escapeHtml(account.nickname)}${account.microsoft ? ' · Microsoft' : ' · Offline'}</option>`).join('');
+  if (activeUser?.sessionToken) select.value = activeUser.sessionToken;
+}
 async function enterLauncher(user) {
+  document.getElementById('skin-album').replaceChildren();
+  document.getElementById('skin-album').classList.add('hidden');
   activeUser = user;
   updateUserIdentity(activeUser.nickname);
+  refreshAccountSwitcher().catch(() => {});
   authScreen.classList.add('hidden');
   launcherScreen.classList.remove('hidden');
   await loadAppState();
@@ -2954,6 +3362,11 @@ async function guestLogin(event) {
   event.preventDefault();
   if (!window.api.guestLogin) return;
 
+  const button = document.getElementById('guest-button');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  try {
   setMessage(guestMessage, '');
   const result = await window.api.guestLogin({
     nickname: fields.guestNick.value.trim()
@@ -2969,6 +3382,12 @@ async function guestLogin(event) {
     await saveSettings({ skin: result.skin.path, useUniqueMods: false });
     await refreshPreviews();
   }
+  } catch (error) {
+    setMessage(guestMessage, error.message || 'Не удалось войти офлайн. Попробуйте ещё раз.');
+  } finally {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+  }
 }
 
 async function microsoftLogin() {
@@ -2978,6 +3397,8 @@ async function microsoftLogin() {
   }
 
   microsoftLoginButton.disabled = true;
+  microsoftLoginButton.setAttribute('aria-busy', 'true');
+  try {
   setMessage(loginMessage, 'Opening Microsoft login...', 'success');
   const flow = await window.api.startMicrosoftLogin();
   if (!flow.success) {
@@ -2985,6 +3406,8 @@ async function microsoftLogin() {
     setMessage(loginMessage, flow.error || 'Microsoft login failed.');
     return;
   }
+
+  if (flow.browserOpened === false) await window.api.openExternal(flow.authorizationUrl);
 
   setMessage(loginMessage, 'Завершите вход в открывшемся браузере — лаунчер получит callback автоматически.', 'success');
   const result = await window.api.completeMicrosoftLogin({ flowId: flow.flowId });
@@ -2996,6 +3419,12 @@ async function microsoftLogin() {
   }
 
   await enterLauncher(result.user);
+  } catch (error) {
+    setMessage(loginMessage, error.message || 'Не удалось завершить вход. Попробуйте ещё раз.');
+  } finally {
+    microsoftLoginButton.disabled = false;
+    microsoftLoginButton.removeAttribute('aria-busy');
+  }
 }
 
 async function register(event) {
@@ -3021,11 +3450,45 @@ async function register(event) {
   }
 }
 
+async function applyAccountSkin(filePath, skinId) {
+  const status = document.getElementById('skin-apply-status');
+  const user = activeUser;
+  if (!user) return false;
+  status.textContent = 'Применяю скин…';
+  try {
+    const result = await window.api.applySkin({ sessionToken: user.sessionToken, filePath, skinId, model: fields.skinModel.value });
+    if (!result.success) throw new Error(result.error);
+    if (activeUser?.sessionToken !== user.sessionToken) return false;
+    currentSettings = result.settings;
+    applySettingsToUi();
+    await refreshPreviews();
+    status.textContent = result.licensed ? 'Скин изменён в текущем аккаунте Minecraft.' : 'Скин сохранён для офлайн-профиля. Его видимость в игре зависит от поддержки скинов сборкой.';
+    return true;
+  } catch (error) { status.textContent = error.message; return false; }
+}
+document.getElementById('open-skin-album').addEventListener('click', async () => {
+  const album = document.getElementById('skin-album');
+  album.classList.toggle('hidden');
+  if (album.classList.contains('hidden')) return;
+  try {
+    const result = await window.api.getSkinAlbum({ sessionToken: activeUser?.sessionToken });
+    if (!result.success) throw new Error(result.error);
+    album.innerHTML = result.items.map(item => `<button type="button" class="skin-album-item" data-skin-id="${escapeHtml(item.id)}"><img src="${escapeHtml(item.preview)}" alt="" /><span>${escapeHtml(item.name)}</span></button>`).join('') || '<p>Выбранные скины появятся здесь после применения.</p>';
+  } catch (error) { album.textContent = error.message; }
+});
+document.getElementById('skin-album').addEventListener('click', async event => {
+  const button = event.target.closest('[data-skin-id]');
+  if (!button) return;
+  button.disabled = true;
+  try { await applyAccountSkin(null, button.dataset.skinId); }
+  finally { button.disabled = false; }
+});
+
 async function selectSkin() {
   const file = await window.api.chooseFile({ filters: [{ name: 'Minecraft skin PNG', extensions: ['png'] }] });
   if (!file) return;
 
-  await saveSettings({ skin: file.path });
+  if (!await applyAccountSkin(file.path)) return;
   fields.skinName.textContent = file.name;
   await setImagePreview(fields.skinPreview, file.path);
   await refreshPlayerPreviewAssets();
@@ -3043,7 +3506,7 @@ async function downloadSkinByNickname() {
     return;
   }
 
-  await saveSettings({ skin: result.file.path });
+  if (!await applyAccountSkin(result.file.path)) return;
   fields.skinName.textContent = result.file.name;
   if (result.preview) {
     fields.skinPreview.src = result.preview;
@@ -3070,7 +3533,9 @@ async function selectWallpaper() {
   const file = await window.api.chooseFile({ filters: [{ name: 'Wallpaper', extensions: ['png', 'jpg', 'jpeg'] }] });
   if (!file) return;
 
-  await saveSettings({ wallpaper: file.path });
+  await saveSettings({ wallpaper: file.path, wallpaperPosition: { x: 50, y: 50 } });
+  if (fields.wallpaperCrop) fields.wallpaperCrop.style.setProperty('--wallpaper-position', '50% 50%');
+  document.getElementById('wallpaper-crop-controls')?.classList.remove('hidden');
   wallpaperName.textContent = file.name;
   await setWallpaperPreview(file.path);
 }
@@ -3093,7 +3558,8 @@ async function launchMinecraft() {
 
   if (launchActive) {
     const result = await window.api.stopMinecraft({ sessionToken: activeUser.sessionToken });
-    launchStatus.textContent = result.success ? 'Остановка Minecraft...' : result.error;
+    if (result.stopped) setLaunchActive(false);
+    launchStatus.textContent = result.success ? (result.stopped || !launchActive ? 'Minecraft закрыт.' : 'Остановка Minecraft...') : result.error;
     return;
   }
 
@@ -3108,24 +3574,53 @@ async function launchMinecraft() {
   setLaunchActive(true);
   launchStatus.textContent = `Подготовка ${formatLoaderName(getSelectedModLoader())}-клиента...`;
   appendLog(`Запуск Minecraft ${formatLoaderName(getSelectedModLoader())}...`);
+  try {
+    console.log(`[launcher] Launch requested by ${activeUser?.nickname || 'unknown'} at ${new Date().toISOString()}`);
+    if (window.api.logLaunch) {
+      window.api.logLaunch({
+        nickname: activeUser?.nickname || '',
+        instanceId: currentSettings?.activeInstanceId || '',
+        loader: getSelectedModLoader(),
+        version: fields.minecraftVersion?.value || ''
+      }).catch(() => {});
+    }
+  } catch (e) {
+    /* ignore logging errors */
+  }
 
-  const result = await window.api.launchMinecraft({
-    user: activeUser,
-    memory: currentSettings.memory,
-    settings: currentSettings
-  });
+  let result;
+  launchRequestPending = true;
+  try {
+    result = await window.api.launchMinecraft({ user: activeUser, memory: currentSettings.memory, settings: currentSettings });
+  } catch (error) {
+    launchStatus.textContent = error.message;
+    appendLog(error.message);
+    return;
+  } finally {
+    launchRequestPending = false;
+    void refreshLaunchState();
+  }
 
   if (!result.success) {
+    if (result.code === 'LAUNCH_CANCELLED') {
+      setLaunchActive(false);
+      launchStatus.textContent = 'Запуск отменён.';
+      return;
+    }
     launchStatus.textContent = result.error;
     appendLog(`Ошибка: ${result.error}`);
     if (result.code === 'BUILD_INSTANCE_REQUIRED') {
       setLauncherSection('library');
     }
     if (result.code === 'JAVA_REQUIRED') {
-      const install = window.confirm(`${result.error}\n\nУстановить Java 21 сейчас?`);
+      const major = Math.max(21, result.minimumJava || 21);
+      const lang = currentSettings?.language || 'ru';
+      const prompts = { ru: `Открыть установку Java ${major}?`, en: `Open Java ${major} installation?`, es: `¿Abrir la instalación de Java ${major}?` };
+      const install = window.confirm(`${localizer.value(result.error, {}, 'text')}\n\n${prompts[lang] || prompts.ru}`);
       if (install) {
-        await window.api.installJava();
-        launchStatus.textContent = 'Открыта установка Java 21. После установки запусти Minecraft еще раз.';
+        if (major > 21) await window.api.openExternal(result.javaInstallUrl);
+        else await window.api.installJava();
+        launchStatus.textContent = `Открыта установка Java ${major}. После установки запусти Minecraft еще раз.`;
       }
     }
     setLaunchActive(false);
@@ -3150,105 +3645,32 @@ function updateMemoryLabels() {
   updateLaunchInsights();
 }
 
-function setLaunchActive(active) {
+function setLaunchActive(active, running = false) {
   launchActive = active;
-  setButtonIconText(launchButton, active ? 'stop' : 'play', active ? 'Остановить запуск' : 'Играть');
+  syncHorizonControls();
+  gameRunning = active && running;
+  const copy = languageStrings[currentSettings?.language] || languageStrings.ru;
+  const labels = ({ ru: ['Запустить', 'Остановить'], en: ['Launch', 'Stop'], es: ['Iniciar', 'Detener'] })[currentSettings?.language] || ['Запустить', 'Остановить'];
+  setButtonIconText(launchButton, active ? 'stop' : 'play', active ? (running ? labels[1] : copy.stop) : labels[0]);
   launchButton.classList.toggle('danger', active);
+  if (active && !launchPollTimer) launchPollTimer = setInterval(refreshLaunchState, 2000);
+  if (!active && launchPollTimer) { clearInterval(launchPollTimer); launchPollTimer = null; }
+}
+
+async function refreshLaunchState() {
+  if (launchPollBusy || !window.api.getLaunchState) return;
+  launchPollBusy = true;
+  try {
+    const state = await window.api.getLaunchState();
+    if (state.active || !launchRequestPending) setLaunchActive(state.active, state.running);
+  } catch { /* Keep known state when the backend is temporarily unavailable. */ }
+  finally { launchPollBusy = false; }
 }
 
 function startSpaceEffect() {
-  if (!spaceCanvas) return;
-
-  const ctx = spaceCanvas.getContext('2d');
-  const stars = [];
-  let width = 0;
-  let height = 0;
-  let dpr = 1;
-  let lastFrameAt = 0;
-
-  function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    width = window.innerWidth;
-    height = window.innerHeight;
-    spaceCanvas.width = Math.floor(width * dpr);
-    spaceCanvas.height = Math.floor(height * dpr);
-    spaceCanvas.style.width = `${width}px`;
-    spaceCanvas.style.height = `${height}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    stars.length = 0;
-    const starCount = Math.max(80, Math.min(150, Math.floor((width * height) / 14000)));
-    for (let i = 0; i < starCount; i += 1) {
-      stars.push({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        z: 0.25 + Math.random() * 1.2,
-        size: 0.5 + Math.random() * 1.8,
-        drift: 0.08 + Math.random() * 0.32,
-        glow: 0.25 + Math.random() * 0.75
-      });
-    }
-  }
-
-  function drawNebula(time) {
-    const accentRgb = spaceAccentRgb;
-    const accent2Rgb = spaceAccent2Rgb;
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, 'rgba(12, 18, 38, 0.9)');
-    gradient.addColorStop(0.45, `rgba(${accentRgb}, 0.18)`);
-    gradient.addColorStop(1, 'rgba(3, 7, 18, 0.92)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.translate(Math.sin(time / 9000) * 24, Math.cos(time / 11000) * 18);
-    for (let i = 0; i < 5; i += 1) {
-      const y = (height / 6) * (i + 1);
-      const band = ctx.createLinearGradient(0, y - 80, width, y + 80);
-      band.addColorStop(0, `rgba(${accentRgb}, 0)`);
-      band.addColorStop(0.5, i % 2 ? `rgba(${accentRgb}, 0.16)` : `rgba(${accent2Rgb}, 0.16)`);
-      band.addColorStop(1, `rgba(${accentRgb}, 0)`);
-      ctx.fillStyle = band;
-      ctx.fillRect(0, y - 90, width, 180);
-    }
-    ctx.restore();
-  }
-
-  function tick(time) {
-    spaceAnimationFrame = requestAnimationFrame(tick);
-    if (document.hidden) {
-      return;
-    }
-
-    const reduceMotion = document.body.classList.contains('reduce-motion');
-    const frameInterval = reduceMotion ? 400 : 33;
-    if (time - lastFrameAt < frameInterval) {
-      return;
-    }
-    lastFrameAt = time;
-
-    drawNebula(reduceMotion ? 0 : time);
-
-    for (const star of stars) {
-      if (!reduceMotion) {
-        star.y += star.drift * star.z;
-        star.x += Math.sin((time * 0.0002) + star.y * 0.01) * 0.08;
-      }
-      if (star.y > height + 8) {
-        star.y = -8;
-        star.x = Math.random() * width;
-      }
-
-      const alpha = 0.28 + Math.sin((reduceMotion ? 0 : time) * 0.002 * star.z + star.x) * 0.16 + star.glow * 0.34;
-      ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.9, alpha))})`;
-      ctx.fillRect(star.x, star.y, star.size, star.size);
-    }
-  }
-
-  window.addEventListener('resize', resize);
-  resize();
-  spaceAnimationFrame = requestAnimationFrame(tick);
+  const background = new window.AmbientBackground(spaceCanvas, () => [spaceAccentRgb, spaceAccent2Rgb]);
+  background.start();
+  window.addEventListener('pagehide', () => background.dispose(), { once: true });
 }
 
 function resetPlayerPreviewView() {
@@ -3381,19 +3803,6 @@ async function analyzeCrash() {
     .join(' | ');
 }
 
-async function repairGame() {
-  if (diagnosticsMessage) diagnosticsMessage.textContent = 'Проверяю и чиню игровые файлы...';
-  const result = await window.api.repairGame({ nickname: activeUser?.nickname || '' });
-  if (!diagnosticsMessage) return;
-  if (!result.success) {
-    diagnosticsMessage.textContent = result.error || 'Repair failed.';
-    return;
-  }
-  const repaired = result.repaired || {};
-  diagnosticsMessage.textContent = `Готово: assets ${repaired.emptyAssets || 0}, temp mods ${repaired.removedTempMods?.length || 0}, servers.dat обновлён.`;
-  await refreshMods();
-}
-
 window.addEventListener('focus', refreshSpotifyNowPlaying);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
@@ -3401,17 +3810,17 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-loginTab.addEventListener('click', () => setAuthMode('login'));
-registerTab.addEventListener('click', () => setAuthMode('register'));
-guestTab?.addEventListener('click', () => setAuthMode('guest'));
+loginTab?.addEventListener('click', () => setAuthMode());
+registerTab?.addEventListener('click', () => setAuthMode());
+guestTab?.addEventListener('click', () => setAuthMode());
 sectionButtons.forEach((button) => {
   button.addEventListener('click', () => setLauncherSection(button.dataset.section));
 });
 settingsTabs.forEach((button) => {
   button.addEventListener('click', () => setSettingsTab(button.dataset.settingsTab));
 });
-loginForm.addEventListener('submit', login);
-registerForm.addEventListener('submit', register);
+loginForm?.addEventListener('submit', login);
+registerForm?.addEventListener('submit', register);
 guestForm?.addEventListener('submit', guestLogin);
 microsoftLoginButton?.addEventListener('click', microsoftLogin);
 document.getElementById('window-minimize').addEventListener('click', () => controlWindow('minimize'));
@@ -3425,6 +3834,7 @@ activeUserLabel?.addEventListener('keydown', (event) => {
   }
 });
 document.getElementById('logout-button').addEventListener('click', async () => {
+  await cancelSpotifyConnection();
   await window.api.logout({ sessionToken: activeUser?.sessionToken });
   stopSpotifyRefresh();
   stopServerRegistryRefresh();
@@ -3434,10 +3844,10 @@ document.getElementById('logout-button').addEventListener('click', async () => {
   updateUserIdentity('');
   launcherScreen.classList.add('hidden');
   authScreen.classList.remove('hidden');
-  setAuthMode('login');
+  setAuthMode();
 });
 document.getElementById('refresh-mods').addEventListener('click', refreshMods);
-document.getElementById('refresh-mods-panel')?.addEventListener('click', refreshMods);
+document.getElementById('refresh-mods-panel')?.addEventListener('click', refreshContentManager);
 checkModrinthUpdatesButton?.addEventListener('click', checkModrinthUpdates);
 document.getElementById('refresh-content')?.addEventListener('click', async () => {
   await refreshLauncherContent();
@@ -3460,11 +3870,67 @@ refreshInstancesButton?.addEventListener('click', loadBuildInstances);
 createInstanceButton?.addEventListener('click', createBuildInstance);
 importExistingInstanceButton?.addEventListener('click', importExistingInstance);
 importMrpackButton?.addEventListener('click', importMrpack);
+document.getElementById('pack-import-url-button').addEventListener('click', async event => {
+  const ref = document.getElementById('pack-import-url').value.trim();
+  if (!/^https:\/\/(www\.)?modrinth\.com\/modpack\/[\w-]+\/?(?:[?#].*)?$/.test(ref)) {
+    buildLibraryStatus.textContent = 'Укажите ссылку https://modrinth.com/modpack/название'; return;
+  }
+  const button = event.currentTarget;
+  button.disabled = true;
+  buildLibraryStatus.textContent = 'Импортирую сборку из Modrinth…';
+  try { await importModrinthByRef(ref); }
+  catch (error) { buildLibraryStatus.textContent = error.message; }
+  finally { button.disabled = false; }
+});
 instanceList?.addEventListener('click', async (event) => {
-  const button = event.target.closest('.instance-select');
+  const edit = event.target.closest('.instance-edit');
+  if (edit) { openInstanceEditor(edit.dataset.instanceId); return; }
+  const favorite = event.target.closest('.instance-favorite');
+  if (favorite) {
+    const instance = buildInstances.find(item => item.id === favorite.dataset.instanceId);
+    if (instance) {
+      favorite.disabled = true;
+      try { await updateInstanceAppearance(instance.id, { favorite: !instance.favorite }); }
+      catch (error) { buildLibraryStatus.textContent = error.message; }
+      finally { favorite.disabled = false; }
+    }
+    return;
+  }
+  const selectButton = event.target.closest('.instance-select');
+  if (selectButton) {
+    await selectBuildInstance(selectButton.dataset.instanceId);
+    return;
+  }
+  const contentButton = event.target.closest('.instance-content');
+  if (contentButton) {
+    await openInstanceContent(contentButton.dataset.instanceId, contentButton.dataset.content);
+    return;
+  }  const deleteButton = event.target.closest('.instance-delete');
+  if (deleteButton) {
+    const instanceId = deleteButton.dataset.instanceId;
+    if (!instanceId) return;
+    const ok = confirm('Удалить сборку? Это действие нельзя отменить.');
+    if (!ok) return;
+    const result = await window.api.deleteBuildInstance({ nickname: activeUser?.nickname || '', instanceId });
+    if (!result || !result.success) {
+      alert(result?.error || 'Не удалось удалить сборку.');
+      return;
+    }
+    buildInstances = result.instances || buildInstances.filter((i) => i.id !== instanceId);
+    currentSettings = result.settings || currentSettings;
+    renderActiveInstanceSelect();
+    renderInstanceList();
+    renderInstanceRail();
+    await refreshMods();
+    return;
+  }
+});
+instanceRail?.addEventListener('click', async (event) => {
+  const button = event.target.closest('.instance-rail-button');
   if (!button) return;
   await selectBuildInstance(button.dataset.instanceId);
 });
+document.getElementById('rail-create-instance')?.addEventListener('click', openBuildLibrary);
 fields.activeInstance?.addEventListener('change', async () => {
   await selectBuildInstance(fields.activeInstance.value);
 });
@@ -3487,9 +3953,10 @@ document.getElementById('open-user-mods').addEventListener('click', () => window
   nickname: activeUser?.nickname || '',
   minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1'
 }));
-document.getElementById('open-user-mods-panel')?.addEventListener('click', () => window.api.openUserModsFolder({
+document.getElementById('open-user-mods-panel')?.addEventListener('click', () => window.api.openGameContentFolder({
   nickname: activeUser?.nickname || '',
-  minecraftVersion: currentSettings?.minecraftVersion || fields.minecraftVersion?.value || '1.20.1'
+  instanceId: currentSettings?.activeInstanceId,
+  type: activeContentType
 }));
 modrinthModSearchButton?.addEventListener('click', searchModrinthMods);
 modrinthModSearch?.addEventListener('keydown', (event) => {
@@ -3533,6 +4000,11 @@ modrinthModResults?.addEventListener('click', async (event) => {
   }
   const button = event.target.closest('.modrinth-install-mod');
   if (button) await installModrinthMod(button);
+  const projectButton = event.target.closest('.modrinth-install-project');
+  if (projectButton && !launchActive) {
+    await installModrinthProject(projectButton);
+    await refreshContentManager();
+  }
 });
 modrinthContentResults?.addEventListener('click', async (event) => {
   const detailsButton = event.target.closest('.modrinth-show-details');
@@ -3613,26 +4085,110 @@ document.getElementById('choose-wallpaper').addEventListener('click', selectWall
 document.getElementById('select-java').addEventListener('click', selectJava);
 document.getElementById('save-profile-links').addEventListener('click', saveProfileLinks);
 document.getElementById('connect-spotify').addEventListener('click', connectSpotify);
+document.getElementById('cancel-spotify').addEventListener('click', cancelSpotifyConnection);
 document.getElementById('disconnect-spotify').addEventListener('click', disconnectSpotify);
 document.getElementById('refresh-spotify').addEventListener('click', refreshSpotifyNowPlaying);
 document.getElementById('check-updates')?.addEventListener('click', checkUpdates);
 document.getElementById('install-update')?.addEventListener('click', () => window.api.installUpdate());
 document.getElementById('open-logs')?.addEventListener('click', () => window.api.openLogsFolder());
+document.getElementById('open-launch-logs')?.addEventListener('click', () => window.api.openLogsFolder());
+for (const [id, type] of [['home-instance-content', 'mods'], ['home-instance-worlds', 'worlds']]) {
+  document.getElementById(id)?.addEventListener('click', () => {
+    const instance = getActiveBuildInstance();
+    if (instance) void openInstanceContent(instance.id, type);
+    else setLauncherSection('library');
+  });
+}
+document.getElementById('home-instance-files')?.addEventListener('click', () => {
+  const instance = getActiveBuildInstance();
+  if (instance) void window.api.openGameContentFolder({ nickname: activeUser?.nickname, instanceId: instance.id, type: 'instance' });
+  else setLauncherSection('library');
+});
+document.getElementById('home-instance-logs')?.addEventListener('click', () => {
+  launchLog.closest('.log-panel')?.scrollIntoView({ block: 'nearest' });
+  launchLog.tabIndex = 0;
+  launchLog.focus({ preventScroll: true });
+});
+async function refreshGameStorage() {
+  try {
+    const info = await window.api.getGameStorage();
+    document.getElementById('game-storage-path').textContent = info.root + (info.pending ? ` → ${info.pending}` : '');
+    document.getElementById('game-storage-status').textContent = info.error || (info.pending ? 'Перезапустите лаунчер для переноса файлов.' : '');
+  } catch (error) { document.getElementById('game-storage-status').textContent = error.message; }
+}
+async function changeGameStorage(useDefault) {
+  const buttons = ['choose-game-storage', 'default-game-storage'].map(id => document.getElementById(id));
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const folder = useDefault ? null : await window.api.chooseDirectory();
+    if (!useDefault && !folder) return;
+    const result = await window.api.changeGameStorage({ useDefault, path: folder?.path });
+    if (!result.success) throw new Error(result.error);
+    await refreshGameStorage();
+  } catch (error) { document.getElementById('game-storage-status').textContent = error.message; }
+  finally { buttons.forEach(button => { button.disabled = false; }); }
+}
+document.getElementById('choose-game-storage')?.addEventListener('click', () => changeGameStorage(false));
+document.getElementById('default-game-storage')?.addEventListener('click', () => changeGameStorage(true));
+refreshGameStorage();
 document.getElementById('export-diagnostics')?.addEventListener('click', exportDiagnostics);
 document.getElementById('analyze-crash')?.addEventListener('click', analyzeCrash);
-document.getElementById('repair-game')?.addEventListener('click', repairGame);
+contentManagerTabs?.addEventListener('click', async (event) => { const button = event.target.closest('[data-content-tab]'); if (!button || launchActive) return; activeContentType = button.dataset.contentTab; modrinthSearchRevision++; if (modrinthModResults) modrinthModResults.innerHTML = ''; await refreshContentManager(); });
+contentManagerList?.addEventListener('click', async event => {
+  const button = event.target.closest('[data-content-name]');
+  if (!button || launchActive) return;
+  button.disabled = true;
+  try {
+    const payload = { type: activeContentType, name: button.dataset.contentName, nickname: activeUser?.nickname, instanceId: currentSettings.activeInstanceId };
+    const result = button.classList.contains('content-delete')
+      ? await window.api.deleteGameContent(payload)
+      : await window.api.setGameContentEnabled({ ...payload, enabled: !button.classList.contains('active') });
+    if (!result.success) throw new Error(result.error);
+    await refreshContentManager();
+  } catch (error) { setStatusText(modrinthModStatus, error.message, 'error'); }
+  finally { button.disabled = false; }
+});
+document.getElementById('account-switch')?.addEventListener('change', async (event) => { await cancelSpotifyConnection(); const result = await window.api.switchAccount({ sessionToken: event.target.value }); if (result.success) await enterLauncher(result.user); });
+document.getElementById('add-account')?.addEventListener('click', () => { launcherScreen.classList.add('hidden'); authScreen.classList.remove('hidden'); setAuthMode('login'); });
 launchButton.addEventListener('click', launchMinecraft);
 document.getElementById('clear-log').addEventListener('click', () => { launchLog.textContent = ''; });
 
 fields.memoryMax.addEventListener('input', updateMemoryLabels);
+fields.profileMemoryMax?.addEventListener('change', async () => { const id = fields.buildProfile?.value || 'normal'; const value = Math.max(1024, Number(fields.profileMemoryMax.value) || 4096); currentSettings.memoryProfiles = { ...(currentSettings.memoryProfiles || {}), [id]: value }; fields.memoryMax.value = value; updateMemoryLabels(); await saveSettings({ memoryProfiles: currentSettings.memoryProfiles }); });
 fields.memoryMax.addEventListener('change', () => saveSettings());
 fields.hideLauncherDuringGame.addEventListener('change', () => saveSettings());
+fields.showSnapshots?.addEventListener('change', () => saveSettings());
 fields.useUniqueMods?.addEventListener('change', () => saveSettings());
 fields.appearanceTheme?.addEventListener('change', () => saveSettings());
+fields.accentColor?.addEventListener('input', () => applyAppearance(getAppearanceFromFields()));
 fields.accentColor?.addEventListener('change', () => saveSettings());
 fields.reduceMotion?.addEventListener('change', () => saveSettings());
-fields.skinModel.addEventListener('change', async () => {
+fields.language?.addEventListener('change', async () => {
+  applyLanguage(fields.language.value);
+  await saveSettings({ language: fields.language.value });
+});
+let wallpaperCropPointerActive = false;
+function updateWallpaperCropFromPointer(event, persist = false) {
+  const crop = fields.wallpaperCrop;
+  if (!crop || !currentSettings?.wallpaper) return;
+  const rect = crop.getBoundingClientRect();
+  const position = { x: Math.round(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))), y: Math.round(Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))) };
+  currentSettings = { ...currentSettings, wallpaperPosition: position };
+  const cssPosition = `${position.x}% ${position.y}%`;
+  crop.style.setProperty('--wallpaper-position', cssPosition);
+  wallpaperPreview.style.setProperty('--wallpaper-position', cssPosition);
+  if (persist) void saveSettings({ wallpaperPosition: position });
+}
+fields.wallpaperCrop?.addEventListener('pointerdown', (event) => { wallpaperCropPointerActive = true; fields.wallpaperCrop.setPointerCapture?.(event.pointerId); updateWallpaperCropFromPointer(event); });
+fields.wallpaperCrop?.addEventListener('pointermove', (event) => { if (wallpaperCropPointerActive) updateWallpaperCropFromPointer(event); });
+fields.wallpaperCrop?.addEventListener('pointerup', (event) => { if (wallpaperCropPointerActive) { wallpaperCropPointerActive = false; updateWallpaperCropFromPointer(event, true); } });
+document.getElementById('save-appearance')?.addEventListener('click', async () => {
   await saveSettings();
+  setStatusText(buildLibraryStatus, 'Внешний вид сохранён.');
+});
+fields.skinModel.addEventListener('change', async () => {
+  if (currentSettings?.skin) await applyAccountSkin(currentSettings.skin);
+  else await saveSettings();
   drawPlayerPreview();
 });
 
@@ -3667,7 +4223,8 @@ fields.minecraftVersion.addEventListener('input', () => {
 
 window.api.onLaunchProgress((data) => {
   if (data?.name) {
-    launchStatus.textContent = `Загрузка: ${data.name}`;
+    const progress = Number.isFinite(data.percent) ? ` · ${Math.max(0, Math.min(100, Math.round(data.percent)))}%` : '';
+    launchStatus.textContent = `Загрузка: ${localizer.value(data.name, {}, 'text')}${progress}`;
   }
 });
 
@@ -3678,6 +4235,10 @@ window.api.onLaunchError((error) => {
   launchStatus.textContent = text || 'Ошибка процесса Minecraft';
   appendLog(`[error] ${text}`);
 });
+window.api.onLaunchStarted?.(() => {
+  setLaunchActive(true, true);
+  launchStatus.textContent = 'Minecraft запущен.';
+});
 window.api.onLaunchClosed((code) => {
   launchStatus.textContent = `Minecraft завершился с кодом ${code}`;
   appendLog(`Процесс завершён. Код: ${code}`);
@@ -3686,26 +4247,204 @@ window.api.onLaunchClosed((code) => {
 window.api.onWindowMaximizedState(setWindowMaximizeButton);
 window.api.onUpdateStatus(renderUpdateStatus);
 
-['copy', 'cut', 'contextmenu'].forEach((eventName) => {
-  document.addEventListener(eventName, (event) => event.preventDefault());
+window.api.onGameCrashed?.(data => {
+  document.getElementById('game-crash-code').textContent = String(data.code);
+  const dialog = document.getElementById('game-crash-screen');
+  if (!dialog.open) dialog.showModal();
 });
+document.getElementById('close-game-crash').addEventListener('click', () => document.getElementById('game-crash-screen').close());
+document.getElementById('copy-launch-log')?.addEventListener('click', () => window.api.copyText(launchLog.textContent || ''));
 
+function dismissStartupScreen() {
+  const screen = document.getElementById('startup-screen');
+  if (!screen || screen.classList.contains('hidden')) return;
+  const status = document.getElementById('startup-status');
+  if (status) status.textContent = 'Готово';
+  screen.classList.add('hidden');
+  window.setTimeout(() => screen.remove(), 300);
+}
+
+function showStartupAfterIcons() {
+  const icon = document.querySelector('#startup-screen img');
+  if (!icon || icon.complete) {
+    requestAnimationFrame(dismissStartupScreen);
+    return;
+  }
+  icon.addEventListener('load', dismissStartupScreen, { once: true });
+  icon.addEventListener('error', dismissStartupScreen, { once: true });
+  window.setTimeout(dismissStartupScreen, 2500);
+}
 async function init() {
-  setAuthMode('login');
+  let initialLanguage = 'ru';
+  try { initialLanguage = localStorage.getItem('unique-language') || 'ru'; } catch { }
+  applyLanguage(initialLanguage);
+  window.api.getSettings({}).then(settings => { if (!activeUser) applyLanguage(settings.language || initialLanguage); }).catch(() => {});
+  setAuthMode();
   prepareLauncherSections();
   setLauncherSection('main');
   setSettingsTab('info');
   installSvgIcons();
   setupCustomSelects();
-  await loadTitlebarIcon();
-  await updateWindowMaximizeButton();
-  await refreshMods();
+  // Parallelize non-dependent startup tasks
+  showStartupAfterIcons();
+  const pLoadTitle = loadTitlebarIcon().catch(() => {});
+  const pUpdateWindow = updateWindowMaximizeButton();
+  const pRefreshMods = refreshMods();
+  const pSession = window.api.getCurrentSession();
 
-  const session = await window.api.getCurrentSession();
-  if (session.success) {
+  void Promise.allSettled([pUpdateWindow, pRefreshMods]);
+
+  const session = await pSession;
+  if (session && session.success) {
     await enterLauncher(session.user);
   }
+  dismissStartupScreen();
 }
 
-init();
+const experiments = new window.LauncherExperiments({
+  applyTheme: appearance => applyAppearance(appearance),
+  getAppearance: () => currentSettings?.appearance || {}
+});
+let streamerApplied;
+let streamerQueue = Promise.resolve();
+function applyStreamerMode(enabled) {
+  streamerQueue = streamerQueue.catch(() => {}).then(async () => {
+    if (streamerApplied === enabled) return true;
+    const status = document.getElementById('streamer-status');
+    try {
+      if (!window.api.setStreamerMode) { if (enabled) throw new Error('Streamer mode requires Windows WebView2.'); return false; }
+      const result = await window.api.setStreamerMode(enabled);
+      if (!result.success) throw new Error(result.error);
+      streamerApplied = result.enabled;
+      status.textContent = enabled ? 'Streamer mode: ON (BETA)' : '';
+      return true;
+    } catch (error) {
+      document.getElementById('streamer-mode').checked = streamerApplied === true;
+      status.textContent = `Streamer mode: ${error.message}`;
+      return false;
+    }
+  });
+  return streamerQueue;
+}
+document.getElementById('streamer-mode').addEventListener('change', async event => {
+  const input = event.target;
+  input.disabled = true;
+  try { if (await applyStreamerMode(input.checked)) await saveSettings(); }
+  finally { input.disabled = false; }
+});
+for (const id of ['spotify-theme', 'music-visualizer', 'rust-minecraft']) {
+  document.getElementById(id).addEventListener('change', () => {
+    saveSettings().catch(error => { document.getElementById('experiments-status').textContent = error.message; });
+  });
+}
+
+let dropStatusTimer;
+function reportFileDrop(message) {
+  let status = document.getElementById('file-drop-status');
+  if (!status) {
+    status = document.createElement('div'); status.id = 'file-drop-status';
+    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    status.addEventListener('click', () => status.classList.add('hidden'));
+    document.body.appendChild(status);
+  }
+  status.textContent = message;
+  status.classList.remove('hidden');
+  clearTimeout(dropStatusTimer);
+  dropStatusTimer = setTimeout(() => status.classList.add('hidden'), 12000);
+}
+const fileDrops = new window.FileDropController({
+  report: reportFileDrop,
+  resolveTarget: element => {
+    if (!(element instanceof Element)) return null;
+    const skin = element.closest('#select-skin');
+    if (skin) return { type: 'skin', element: skin };
+    const cape = element.closest('#select-cape');
+    if (cape) return { type: 'cape', element: cape };
+    const panel = element.closest('.mods-panel');
+    if (!panel) return null;
+    return { type: element.closest('[data-content-tab]')?.dataset.contentTab || activeContentType, element: panel };
+  },
+  importFiles: async (type, files) => {
+    if (!activeUser) throw new Error('Сначала войдите в аккаунт.');
+    if (files.length > 100) throw new Error('Перетащите не больше 100 файлов за раз.');
+    if (['skin', 'cape'].includes(type) && files.length !== 1) throw new Error('Для скина или плаща перетащите один файл.');
+    if (!['skin', 'cape'].includes(type) && launchActive) throw new Error('Сначала закройте Minecraft.');
+    const user = activeUser;
+    const instanceId = currentSettings?.activeInstanceId;
+    if (!window.api.getDroppedPaths) throw new Error('Перетаскивание поддерживается в версии лаунчера WebView2.');
+    const paths = await window.api.getDroppedPaths(files);
+    if (!paths.length) throw new Error('Не удалось прочитать путь. Для мира попробуйте ZIP с level.dat.');
+    if (activeUser?.sessionToken !== user.sessionToken) throw new Error('Аккаунт изменился. Повторите действие.');
+    reportFileDrop('Импортирую…');
+    if (type === 'skin') {
+      const applied = await applyAccountSkin(paths[0]);
+      reportFileDrop(applied ? 'Скин применён.' : document.getElementById('skin-apply-status').textContent);
+      return;
+    }
+    const result = await window.api.importDroppedContent({ sessionToken: user.sessionToken, instanceId, type, paths });
+    if (!result.success) throw new Error(result.error);
+    if (activeUser?.sessionToken === user.sessionToken) {
+      if (type === 'cape' && result.imported.length) {
+        await saveSettings({ cape: result.imported[0].path });
+        await refreshPreviews();
+      } else if (currentSettings?.activeInstanceId === instanceId) {
+        activeContentType = type;
+        await refreshContentManager();
+      }
+    }
+    const summary = type === 'cape' && result.imported.length
+      ? 'Плащ сохранён в профиле лаунчера. В игре его отображение зависит от поддержки сборкой.'
+      : `Импортировано: ${result.imported.length}.`;
+    reportFileDrop([summary, ...result.errors.map(item => `${item.name}: ${item.error}`)].join('\n'));
+  }
+});
+window.addEventListener('pagehide', () => { fileDrops.dispose(); clearTimeout(dropStatusTimer); }, { once: true });
+
+init().catch((error) => {
+  dismissStartupScreen();
+  setMessage(loginMessage, 'Ошибка загрузки: ' + error.message);
+});
 startSpaceEffect();
+
+for (const [buttonId, setting, inputId] of [
+  ['choose-horizon-client', 'horizonExecutable', 'horizon-executable'],
+  ['choose-horizon-resources', 'horizonResources', 'horizon-resources']
+]) {
+  document.getElementById(buttonId).addEventListener('click', async () => {
+    const status = document.getElementById('horizon-status');
+    try {
+      const file = setting === 'horizonExecutable'
+        ? await window.api.chooseFile({ filters: [{ name: 'Horizon client', extensions: ['exe'] }] })
+        : await window.api.chooseDirectory();
+      const selected = typeof file === 'string' ? file : file?.path;
+      if (!selected) return;
+      await saveSettings({ [setting]: selected });
+      document.getElementById(inputId).value = selected;
+      status.textContent = 'Сохранено.';
+    } catch (error) { status.textContent = error.message; }
+  });
+}
+document.getElementById('horizon-download').addEventListener('click', () => window.api.openExternal('https://playhorizon.dev/'));
+function syncHorizonControls() {
+  const button = document.getElementById('launch-horizon');
+  button.classList.toggle('hidden', !currentSettings?.experiments?.rustMinecraft);
+  button.disabled = launchActive;
+}
+document.getElementById('launch-horizon').addEventListener('click', async event => {
+  const status = document.getElementById('horizon-status');
+  const instance = getActiveBuildInstance();
+  if (!activeUser || launchActive) return;
+  if (!instance) { setLauncherSection('library'); return; }
+  launchRequestPending = true;
+  setLaunchActive(true);
+  const report = text => { status.textContent = text; launchStatus.textContent = text; appendLog(text); };
+  report('Подготовка Rust-сборки: ' + instance.name);
+  try {
+    const result = await window.api.launchHorizon({ user: activeUser, instanceId: instance.id });
+    report(result.success
+      ? 'Запущена Rust-сборка: ' + instance.name + (result.content?.skippedJavaMods ? '. Java-модов не запущено: ' + result.content.skippedJavaMods : '')
+      : result.error);
+    if (!result.success) setLaunchActive(false);
+  } catch (error) { report(error.message); setLaunchActive(false); }
+  finally { launchRequestPending = false; void refreshLaunchState(); }
+});

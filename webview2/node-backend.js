@@ -4,13 +4,13 @@ const path = require('path');
 
 const root = path.resolve(process.env.UNIQUE_WEBVIEW2_ROOT || path.join(__dirname, '..'));
 const handlers = new Map();
-const eventClients = new Set();
+const { BackendEvents } = require(path.join(root, 'lib', 'backend-events'));
+const events = new BackendEvents();
+const stdioTransport = process.env.UNIQUE_BACKEND_TRANSPORT === 'stdio';
 
 function emitEvent(channel, data) {
-  const payload = `data: ${JSON.stringify({ channel, data })}\n\n`;
-  for (const response of eventClients) {
-    response.write(payload);
-  }
+  if (stdioTransport) process.stdout.write(`UNIQUE_RPC:${JSON.stringify({ type: 'event', channel, data })}\n`);
+  else events.emit(channel, data);
 }
 
 const { createElectronShim } = require('./electron-shim');
@@ -87,10 +87,12 @@ function handleEvents(request, response) {
     'X-Accel-Buffering': 'no'
   });
   response.write(': connected\n\n');
-  eventClients.add(response);
-  request.on('close', () => eventClients.delete(response));
+  events.connect(response, Number(request.headers['last-event-id']) || 0);
+  const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 15000);
+  request.on('close', () => { clearInterval(heartbeat); events.disconnect(response); });
 }
 
+function startHttpServer() {
 const server = http.createServer((request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
 
@@ -120,3 +122,12 @@ server.listen(port, '127.0.0.1', () => {
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 process.on('SIGINT', () => server.close(() => process.exit(0)));
+}
+
+if (stdioTransport) {
+  // Let the app.whenReady microtask complete before announcing readiness.
+  Promise.resolve().then(() => {
+    const { serveStdio } = require(path.join(root, 'lib', 'stdio-transport'));
+    serveStdio({ handlers, input: process.stdin, output: process.stdout, emitEvent, onClose: () => process.exit(0) });
+  });
+} else startHttpServer();

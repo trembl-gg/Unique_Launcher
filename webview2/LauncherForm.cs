@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using WebView2Control = Microsoft.Web.WebView2.WinForms.WebView2;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -21,22 +22,29 @@ public sealed class LauncherForm : Form
     private const int WmNclButtonDown = 0x00A1;
     private const int HtCaption = 0x02;
 
-    private readonly WebView2 webView = new();
-    private readonly HttpClient http = new();
+    private readonly WebView2Control webView = new();
+    private readonly HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
     private readonly CancellationTokenSource shutdown = new();
+    private readonly AudioPeakMeter audioMeter = new();
+    private readonly CaptureProtection captureProtection = new();
+    private readonly HashSet<int> iconProcesses = new();
     private Process? backendProcess;
     private int backendPort;
     private bool isMaximized;
+    private volatile bool storageMigration;
+    private readonly Label startupStatus = new() { Dock = DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, ForeColor = System.Drawing.Color.White, Text = "UNIQUE LAUNCHER…" };
 
     public LauncherForm()
     {
         Text = "UNIQUE LAUNCHER";
+        BackColor = System.Drawing.Color.FromArgb(9, 6, 17);
+        webView.DefaultBackgroundColor = BackColor;
         MinimumSize = new System.Drawing.Size(1120, 720);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
         WindowState = FormWindowState.Maximized;
 
-        var iconPath = FindFile("unique иконка.ico");
+        var iconPath = FindFile("launcher.ico") ?? FindFile("unique иконка.ico");
         if (iconPath is not null)
         {
             Icon = new System.Drawing.Icon(iconPath);
@@ -44,9 +52,30 @@ public sealed class LauncherForm : Form
 
         webView.Dock = DockStyle.Fill;
         Controls.Add(webView);
-        Resize += (_, _) => PublishMaximizedState();
+        Controls.Add(startupStatus);
+        startupStatus.BringToFront();
+        Resize += (_, _) => { PublishMaximizedState(); ApplyWindowCorners(); };
+        ResizeEnd += (_, _) => PostToWebView(new { type = "event", channel = "hardware-info", data = WindowsHardware.Read(Handle) });
+        Activated += (_, _) => PostToWebView(new { type = "event", channel = "hardware-info", data = WindowsHardware.Read(Handle) });
         FormClosed += (_, _) => StopBackend();
     }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyWindowCorners();
+        captureProtection.Restore(Handle);
+    }
+
+    private void ApplyWindowCorners()
+    {
+        if (!IsHandleCreated || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+        var preference = WindowState == FormWindowState.Normal ? 2 : 1;
+        DwmSetWindowAttribute(Handle, 33, ref preference, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     protected override async void OnLoad(EventArgs e)
     {
@@ -58,6 +87,7 @@ public sealed class LauncherForm : Form
             StartBackend(backendPort);
             await WaitForBackendAsync();
             await InitializeWebViewAsync();
+            startupStatus.Visible = false;
             _ = Task.Run(() => PumpBackendEventsAsync(shutdown.Token));
         }
         catch (Exception ex)
@@ -69,14 +99,23 @@ public sealed class LauncherForm : Form
 
     private async Task InitializeWebViewAsync()
     {
-        await webView.EnsureCoreWebView2Async();
-        webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-        webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "UNIQUE LAUNCHER", "WebView2");
+        Directory.CreateDirectory(userDataFolder);
+        var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+        await webView.EnsureCoreWebView2Async(environment);
+        webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+        webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+        webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
         webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 
         var rendererIndex = FindFile(Path.Combine("renderer", "index.html"))
             ?? throw new FileNotFoundException("renderer/index.html was not found.");
-        webView.CoreWebView2.Navigate(new Uri(rendererIndex).AbsoluteUri);
+        var rendererUri = new Uri(rendererIndex).AbsoluteUri;
+        webView.CoreWebView2.NavigationStarting += (_, args) =>
+        {
+            if (!string.Equals(args.Uri.Split('#')[0], rendererUri, StringComparison.OrdinalIgnoreCase)) args.Cancel = true;
+        };
+        webView.CoreWebView2.Navigate(rendererUri);
     }
 
     private void StartBackend(int port)
@@ -105,7 +144,12 @@ public sealed class LauncherForm : Form
 
         backendProcess = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Cannot start UNIQUE backend process.");
-        backendProcess.OutputDataReceived += (_, args) => Debug.WriteLine(args.Data);
+        backendProcess.OutputDataReceived += (_, args) =>
+        {
+            Debug.WriteLine(args.Data);
+            if (args.Data == "UNIQUE_STORAGE_COPY_START") storageMigration = true;
+            if (args.Data == "UNIQUE_STORAGE_COPY_END") storageMigration = false;
+        };
         backendProcess.ErrorDataReceived += (_, args) => Debug.WriteLine(args.Data);
         backendProcess.BeginOutputReadLine();
         backendProcess.BeginErrorReadLine();
@@ -113,6 +157,7 @@ public sealed class LauncherForm : Form
 
     private void StopBackend()
     {
+        audioMeter.Dispose();
         shutdown.Cancel();
         try
         {
@@ -132,8 +177,15 @@ public sealed class LauncherForm : Form
         var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
         Exception? lastError = null;
 
-        while (DateTimeOffset.UtcNow < deadline)
+        while (DateTimeOffset.UtcNow < deadline || storageMigration)
         {
+            shutdown.Token.ThrowIfCancellationRequested();
+            if (backendProcess is { HasExited: true }) throw new InvalidOperationException("UNIQUE backend stopped during startup.");
+            if (storageMigration)
+            {
+                startupStatus.Text = "UNIQUE LAUNCHER\nПеренос и проверка файлов игры / Copying and verifying game files / Copiando y verificando archivos…";
+                deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+            }
             try
             {
                 using var response = await http.GetAsync($"http://127.0.0.1:{backendPort}/health");
@@ -169,7 +221,18 @@ public sealed class LauncherForm : Form
 
             try
             {
-                var result = await InvokeAsync(channel, payload);
+                object? result;
+                if (channel == "dropped-files")
+                {
+                    var paths = new List<string>();
+                    foreach (var item in e.AdditionalObjects)
+                    {
+                        if (item is CoreWebView2File file && (File.Exists(file.Path) || Directory.Exists(file.Path))) paths.Add(file.Path);
+                        if (paths.Count > 100) throw new InvalidOperationException("Перетащите не больше 100 файлов за раз.");
+                    }
+                    result = paths;
+                }
+                else result = await InvokeAsync(channel, payload);
                 PostToWebView(new { type = "invoke-result", id, ok = true, result });
             }
             catch (Exception ex)
@@ -186,11 +249,17 @@ public sealed class LauncherForm : Form
             "window-control" => HandleWindowControl(payloadJson),
             "window-is-maximized" => WindowState == FormWindowState.Maximized,
             "window-drag" => HandleWindowDrag(),
+            "audio-peak" => audioMeter.Read(),
+            "get-hardware-info" => WindowsHardware.Read(Handle),
+            "audio-meter-stop" => StopAudioMeter(),
+            "streamer-mode" => captureProtection.Set(Handle, JsonSerializer.Deserialize<bool>(payloadJson)),
             "choose-file" => HandleChooseFile(payloadJson),
             "choose-directory" => HandleChooseDirectory(),
             _ => await ForwardToBackendAsync(channel, payloadJson)
         };
     }
+
+    private bool StopAudioMeter() { audioMeter.Dispose(); return true; }
 
     private object? HandleWindowDrag()
     {
@@ -322,9 +391,18 @@ public sealed class LauncherForm : Form
 
     private async Task<JsonElement?> ForwardToBackendAsync(string channel, string payloadJson)
     {
+        if (channel == "launch-minecraft")
+        {
+            var payload = System.Text.Json.Nodes.JsonNode.Parse(payloadJson);
+            if (payload is System.Text.Json.Nodes.JsonObject obj)
+            {
+                obj["_displayRefreshRate"] = JsonSerializer.SerializeToNode(WindowsHardware.Read(Handle)["refreshRate"]);
+                payloadJson = obj.ToJsonString();
+            }
+        }
         var url = $"http://127.0.0.1:{backendPort}/invoke/{Uri.EscapeDataString(channel)}";
         using var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
-        using var response = await http.PostAsync(url, content);
+        using var response = await http.PostAsync(url, content, shutdown.Token);
         var json = await response.Content.ReadAsStringAsync();
 
         using var document = JsonDocument.Parse(json);
@@ -341,41 +419,68 @@ public sealed class LauncherForm : Form
         {
             return null;
         }
+        if (channel == "get-launch-state" && result.ValueKind == JsonValueKind.Object
+            && result.TryGetProperty("running", out var running) && running.ValueKind == JsonValueKind.True
+            && result.TryGetProperty("pid", out var gamePid) && gamePid.TryGetInt32(out var pid)) TrackGameIcon(pid, shutdown.Token);
+        if (channel == "get-system-info")
+        {
+            var merged = JsonSerializer.Deserialize<Dictionary<string, object?>>(result.GetRawText())!;
+            foreach (var item in WindowsHardware.Read(Handle)) if (item.Value is not null || item.Key == "refreshRate") merged[item.Key] = item.Value;
+            return JsonSerializer.SerializeToElement(merged);
+        }
         return result.Clone();
     }
 
     private async Task PumpBackendEventsAsync(CancellationToken token)
     {
-        try
+        using var eventsHttp = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        string lastId = "0";
+        while (!token.IsCancellationRequested)
         {
-            using var stream = await http.GetStreamAsync($"http://127.0.0.1:{backendPort}/events", token);
-            using var reader = new StreamReader(stream);
-            while (!token.IsCancellationRequested)
+            try
             {
-                var line = await reader.ReadLineAsync();
-                if (line is null) break;
-                if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
-
-                using var document = JsonDocument.Parse(line[6..]);
-                var channel = document.RootElement.GetProperty("channel").GetString();
-                var data = document.RootElement.GetProperty("data").Clone();
-                if (channel == "window-control" && HandleBackendWindowControl(data))
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{backendPort}/events");
+                request.Headers.TryAddWithoutValidation("Last-Event-ID", lastId);
+                using var response = await eventsHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+                response.EnsureSuccessStatusCode();
+                using var stream = await response.Content.ReadAsStreamAsync(token);
+                using var reader = new StreamReader(stream);
+                var nextId = lastId;
+                while (!token.IsCancellationRequested)
                 {
-                    continue;
+                    var line = await reader.ReadLineAsync(token);
+                    if (line is null) break;
+                    if (line.StartsWith("id: ", StringComparison.Ordinal)) { nextId = line[4..]; continue; }
+                    if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+                    using var document = JsonDocument.Parse(line[6..]);
+                    var channel = document.RootElement.GetProperty("channel").GetString();
+                    var data = document.RootElement.GetProperty("data").Clone();
+                    if (channel == "launch-started" && data.ValueKind == JsonValueKind.Object && data.TryGetProperty("pid", out var pidValue) && pidValue.TryGetInt32(out var gamePid))
+                        TrackGameIcon(gamePid, token);
+                    if (channel != "window-control" || !HandleBackendWindowControl(data))
+                        PostToWebView(new { type = "event", channel, data });
+                    lastId = nextId;
                 }
-
-                PostToWebView(new
-                {
-                    type = "event",
-                    channel,
-                    data
-                });
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+            catch (Exception error) { NativeDiagnostics.Write("Backend events", error.Message); }
+            try { await Task.Delay(1000, token); } catch (OperationCanceledException) { break; }
         }
-        catch
+    }
+
+    private void TrackGameIcon(int pid, CancellationToken token)
+    {
+        lock (iconProcesses) { if (!iconProcesses.Add(pid)) return; }
+        _ = Task.Run(async () =>
         {
-            // Event stream is best-effort; invoke requests still report direct errors.
-        }
+            try
+            {
+                var icon = FindFile("game.ico");
+                if (icon is null) NativeDiagnostics.Write("Game icon", "game.ico was not found");
+                else await GameWindowIcon.ApplyAsync(pid, icon, token);
+            }
+            finally { lock (iconProcesses) iconProcesses.Remove(pid); }
+        });
     }
 
     private bool HandleBackendWindowControl(JsonElement data)
@@ -397,9 +502,15 @@ public sealed class LauncherForm : Form
 
     private void PostToWebView(object payload)
     {
-        if (webView.CoreWebView2 is null || IsDisposed) return;
+        if (IsDisposed || !IsHandleCreated) return;
         var json = JsonSerializer.Serialize(payload);
-        BeginInvoke(new Action(() => webView.CoreWebView2.PostWebMessageAsJson(json)));
+        // WebView2 is a UI-thread COM object: even its properties must stay on that thread.
+        try { BeginInvoke(new Action(() =>
+        {
+            if (!IsDisposed && webView.CoreWebView2 is not null)
+                webView.CoreWebView2.PostWebMessageAsJson(json);
+        })); }
+        catch (InvalidOperationException) when (shutdown.IsCancellationRequested) { }
     }
 
     private static int GetFreeLoopbackPort()

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>java</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../webview2/GameWindowIcon.cs" Link="GameWindowIcon.cs" />
+    <Compile Include="../../webview2/GameTaskbarIdentity.cs" Link="GameTaskbarIdentity.cs" />
+    <Compile Include="../../webview2/NativeDiagnostics.cs" Link="NativeDiagnostics.cs" />
+    <Compile Include="../../webview2/CaptureProtection.cs" Link="CaptureProtection.cs" />
+    <Compile Include="../../webview2/WindowsHardware.cs" Link="WindowsHardware.cs" />
+  </ItemGroup>
+</Project>

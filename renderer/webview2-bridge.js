@@ -1,30 +1,47 @@
 (() => {
-  if (window.api || !window.chrome?.webview) {
+  const rustHost = window.__UNIQUE_RUST__ && window.ipc;
+  if (window.api || (!rustHost && !window.chrome?.webview)) {
     return;
   }
 
   const pending = new Map();
   const listeners = new Map();
   let nextId = 1;
+  let backendStopped = false;
+  let receiveMessage;
+  const host = rustHost ? {
+    postMessage: message => window.ipc.postMessage(JSON.stringify(message)),
+    addEventListener: (_name, callback) => { receiveMessage = callback; }
+  } : window.chrome.webview;
+  if (rustHost) window.__uniqueDispatch = data => receiveMessage?.({ data });
 
-  function invoke(channel, payload) {
+  function invoke(channel, payload, files = null) {
+    if (backendStopped && !['window-control', 'window-is-maximized', 'window-drag'].includes(channel)) {
+      return Promise.reject(new Error('Backend остановлен. Перезапустите лаунчер.'));
+    }
     const id = nextId++;
-    window.chrome.webview.postMessage({
+    const message = {
       type: 'invoke',
       id,
       channel,
       payload: payload === undefined ? null : payload
-    });
+    };
 
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
+      try {
+        if (files && !rustHost) {
+          if (!host.postMessageWithAdditionalObjects) throw new Error('Обновите WebView2 Runtime для перетаскивания файлов.');
+          host.postMessageWithAdditionalObjects(message, files);
+        } else host.postMessage(message);
+      } catch (error) { pending.delete(id); reject(error); }
     });
   }
 
   function on(channel, callback) {
     if (!listeners.has(channel)) {
       listeners.set(channel, new Set());
-      window.chrome.webview.postMessage({ type: 'subscribe', channel });
+      if (!rustHost) host.postMessage({ type: 'subscribe', channel });
     }
     listeners.get(channel).add(callback);
   }
@@ -51,7 +68,7 @@
     void invoke('window-control', 'maximize');
   });
 
-  window.chrome.webview.addEventListener('message', (event) => {
+  host.addEventListener('message', (event) => {
     const message = event.data || {};
 
     if (message.type === 'invoke-result') {
@@ -67,6 +84,11 @@
     }
 
     if (message.type === 'event') {
+      if (message.channel === 'backend-stopped') {
+        backendStopped = true;
+        for (const entry of pending.values()) entry.reject(new Error('Backend остановлен. Перезапустите лаунчер.'));
+        pending.clear();
+      }
       const callbacks = listeners.get(message.channel);
       if (!callbacks) return;
       callbacks.forEach((callback) => {
@@ -80,14 +102,29 @@
   });
 
   window.api = {
-    register: (payload) => invoke('auth-register', payload),
-    login: (payload) => invoke('auth-login', payload),
+    onNativeFileDrop: callback => on('native-file-drop', callback),
+    onNativeDropError: callback => on('native-drop-error', callback),
+    getDroppedPaths: files => invoke('dropped-files', null, files),
+    importDroppedContent: payload => invoke('content-import-drop', payload),
+    applySkin: payload => invoke('skin-apply', payload),
+    getSkinAlbum: payload => invoke('skin-album', payload),
+    getAudioPeak: () => invoke('audio-peak'),
+    stopAudioMeter: () => invoke('audio-meter-stop'),
     guestLogin: (payload) => invoke('auth-guest', payload),
+    logLaunch: (payload) => invoke('log-launch', payload),
     getCurrentSession: () => invoke('auth-current-session'),
+    listAccounts: () => invoke('auth-accounts-list'),
+    switchAccount: (payload) => invoke('auth-account-switch', payload),
+    listGameContent: (payload) => invoke('game-content-list', payload),
+    setGameContentEnabled: (payload) => invoke('game-content-set-enabled', payload),
+    deleteGameContent: (payload) => invoke('game-content-delete', payload),
+    openGameContentFolder: (payload) => invoke('open-game-content-folder', payload),
     logout: (payload) => invoke('auth-logout', payload),
     listMods: (payload) => invoke('list-mods', payload),
     listBuildInstances: (payload) => invoke('build-instances-list', payload),
     createBuildInstance: (payload) => invoke('build-instance-create', payload),
+    updateBuildInstance: (payload) => invoke('build-instance-update', payload),
+    deleteBuildInstance: (payload) => invoke('build-instance-delete', payload),
     importExistingBuildInstance: (payload) => invoke('build-instance-import-existing', payload),
     selectBuildInstance: (payload) => invoke('build-instance-select', payload),
     searchModrinth: (payload) => invoke('modrinth-search', payload),
@@ -134,29 +171,41 @@
     getSettings: (payload) => invoke('get-settings', payload),
     saveSettings: (payload) => invoke('save-settings', payload),
     getSystemInfo: () => invoke('get-system-info'),
+    getHardwareInfo: () => invoke('get-hardware-info'),
+    onHardwareInfo: callback => on('hardware-info', callback),
     chooseFile: (options) => invoke('choose-file', options),
     chooseDirectory: () => invoke('choose-directory'),
+    getGameStorage: () => invoke('game-storage-info'),
+    changeGameStorage: payload => invoke('game-storage-change', payload),
     getAssetPreview: (filePath) => invoke('get-asset-preview', filePath),
     downloadSkinByNickname: (payload) => invoke('skin-download-by-nickname', payload),
     getTitlebarIcon: () => invoke('get-titlebar-icon'),
     getProfile: (payload) => invoke('profile-get', payload),
     saveProfileLinks: (payload) => invoke('profile-save-links', payload),
     connectSpotify: (payload) => invoke('spotify-connect', payload),
+    completeSpotifyAuth: (payload) => invoke('spotify-connect-complete', payload),
+    cancelSpotifyAuth: (payload) => invoke('spotify-connect-cancel', payload),
     disconnectSpotify: (payload) => invoke('spotify-disconnect', payload),
     getSpotifyNowPlaying: (payload) => invoke('spotify-now-playing', payload),
     startMicrosoftLogin: () => invoke('auth-microsoft-device-start'),
+    openExternal: url => invoke('open-external-url', url),
     completeMicrosoftLogin: (payload) => invoke('auth-microsoft-device-complete', payload),
     windowControl: (action) => invoke('window-control', action),
     isWindowMaximized: () => invoke('window-is-maximized'),
     startWindowDrag: () => invoke('window-drag'),
     onWindowMaximizedState: (callback) => on('window-maximized-state', callback),
+    launchHorizon: (payload) => invoke('launch-horizon', payload),
     launchMinecraft: (payload) => invoke('launch-minecraft', payload),
+    getLaunchState: () => invoke('get-launch-state'),
+    setStreamerMode: (enabled) => invoke('streamer-mode', enabled),
     stopMinecraft: (payload) => invoke('stop-minecraft', payload),
     onLaunchProgress: (callback) => on('launch-progress', callback),
     onLaunchLog: (callback) => on('launch-log', callback),
     onLaunchDebug: (callback) => on('launch-debug', callback),
     onLaunchClosed: (callback) => on('launch-closed', callback),
+    onLaunchStarted: (callback) => on('launch-started', callback),
     onLaunchError: (callback) => on('launch-error', callback),
+    onGameCrashed: callback => on('game-crashed', callback),
     onUpdateStatus: (callback) => on('update-status', callback)
   };
 })();

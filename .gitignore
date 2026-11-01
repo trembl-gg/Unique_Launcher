@@ -17,6 +17,8 @@ secrets*.json
 .npmrc
 # Dependencies
 node_modules/
+target/
+.tools/
 
 # Build outputs and packaged apps
 dist/
@@ -51,10 +53,16 @@ temp_*
 build/*
 !build/installer.nsh
 !build/afterPack.js
+!build/webview2-installer.nsi
+webview2/bin/
+webview2/obj/
+scripts/native-smoke/bin/
+scripts/native-smoke/obj/
 build-exe.bat
 build-fabric-mod.bat
 
 # OS/editor noise
+game-data/
 .DS_Store
 Thumbs.db
 desktop.ini

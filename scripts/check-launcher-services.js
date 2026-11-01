@@ -1,0 +1,142 @@
+const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
+const { LaunchSession } = require('../lib/launch-session');
+const { SettingsService } = require('../lib/settings-service');
+const { memoryBudget } = require('../lib/memory-budget');
+const { DiscordActivity } = require('../lib/discord-activity');
+const { DiscordPresence } = require('../lib/discord-presence');
+
+async function run() {
+  let finished = 0;
+  const preparation = new LaunchSession({ onFinish: () => finished++ });
+  assert.equal((await preparation.stop()).stopped, false);
+  assert.throws(() => preparation.checkpoint(), { code: 'LAUNCH_CANCELLED' });
+  preparation.finish(); preparation.finish();
+  assert.equal(finished, 1);
+
+  const process = new EventEmitter();
+  process.pid = 123; process.exitCode = null;
+  process.kill = () => assert.fail('A normal close must not kill Minecraft');
+  const running = new LaunchSession({
+    platform: 'win32', onFinish: () => finished++,
+    execute: (file, args, options, callback) => {
+      assert.equal(file, 'powershell.exe');
+      assert.match(args.at(-1), /CloseMainWindow/);
+      assert.equal(options.windowsHide, true);
+      callback(null, 'True');
+    }
+  });
+  running.attach(process);
+  assert.equal((await running.stop()).success, true);
+  assert.equal(running.finished, false, 'wait for actual process exit');
+  assert.equal(running.cancelled, false);
+  process.emit('close', 0); running.finish();
+  assert.equal(finished, 2);
+
+  const disk = new Map();
+  const makeSettings = () => new SettingsService({
+    store: { get: (k, fallback) => structuredClone(disk.get(k) ?? fallback), set: (k, v) => disk.set(k, structuredClone(v)) },
+    userKey: 'users', globalKey: 'settings', server: { name: 'Minecraft' },
+    normalizeLoader: value => value || 'fabric', resolveServer: () => null
+  });
+  const settings = makeSettings();
+  settings.saveSettings({ ...settings.getDefaultSettings(), memory: { max: 6144 }, appearance: { accent: '#abcdef', theme: 'deep' }, experiments: { spotifyTheme: true, visualizer: true } }, 'Player');
+  const restored = makeSettings().getSettings('Player');
+  assert.equal(restored.memory.max, Math.min(6144, memoryBudget()));
+  assert.equal(restored.appearance.accent, '#abcdef');
+  assert.deepEqual(restored.experiments, { spotifyTheme: true, visualizer: true, streamerMode: false, rustMinecraft: true });
+  settings.saveSettings({ ...restored, experiments: { ...restored.experiments, rustMinecraft: false } }, 'OptOut');
+  assert.equal(makeSettings().getSettings('OptOut').experiments.rustMinecraft, false);
+  settings.saveSettings({ memory: { max: 4096 } }, 'OptOut');
+  assert.equal(makeSettings().getSettings('OptOut').experiments.rustMinecraft, false);
+  settings.saveSettings({ ...restored, experiments: { ...restored.experiments, rustMinecraft: true } }, 'Player');
+  assert.equal(makeSettings().getSettings('Player').experiments.rustMinecraft, true);
+  assert.equal(settings.saveSettings({ ...restored, experiments: { ...restored.experiments, streamerMode: true } }, 'Player').experiments.streamerMode, true);
+  assert.equal(settings.saveSettings({ memory: { max: Infinity } }).memory.max, Math.min(4096, memoryBudget()));
+
+  const activity = new DiscordActivity('UNIQUE LAUNCHER');
+  assert.match(activity.create({ nickname: 'Player', memoryMax: 6144, microsoft: true }).state, /Лицензия Microsoft/);
+  assert.match(activity.create({ nickname: 'Player', remote: true }).state, /Офлайн/);
+  assert.equal(activity.create({ memoryMax: 6144 }).details, 'Minecraft через UNIQUE LAUNCHER');
+  assert.doesNotMatch(activity.create({ nickname: 'Player', microsoft: true, guest: true }).state, /Лицензия/);
+  const presence = new DiscordPresence({ clientId: '', launcherName: 'UNIQUE' });
+  presence.rpcConnecting = true;
+  presence.disconnectDiscordRpc();
+  assert.equal(presence.rpcConnecting, false);
+  console.log('PASS: cancellation, graceful close, idempotent completion, settings persistence, RAM, RPC account types');
+  const { InstanceRepository } = require('../lib/instance-repository');
+  let instanceDisk = {};
+  const context = new InstanceRepository({
+    key: 'instances', normalizeModLoader: value => value,
+    store: { get: () => structuredClone(instanceDisk), set: (key, value) => { instanceDisk = structuredClone(value); } }
+  });
+  context.upsertBuildInstance('Player', { id: 'one', name: 'My pack', favorite: true, icon: 'data:image/png;base64,aGVsbG8=' }, false);
+  const saved = context.getBuildInstances('Player')[0];
+  assert.equal(saved.favorite, true);
+  assert.equal(saved.icon, 'data:image/png;base64,aGVsbG8=');
+  assert.equal(context.normalizeBuildInstance({ ...saved, updatedAt: '2020-01-01' }).updatedAt, '2020-01-01');
+  context.upsertBuildInstance('Player', { ...saved, name: 'Renamed' }, false);
+  assert.equal(context.getBuildInstances('Player')[0].icon, saved.icon);
+  assert.equal(context.normalizeBuildInstance({ icon: 'https://untrusted.example/image.svg' }).icon, '');
+  assert.equal(context.normalizeBuildInstance({}).favorite, false);
+  console.log('PASS: instance avatar and favorites persist across normalization and rename');
+  const { RequestCache } = require('../lib/request-cache');
+  let time = 0, requests = 0;
+  const cache = new RequestCache({ ttlMs: 10, maxEntries: 2, maxBytes: 100, now: () => time });
+  const fetchValue = async () => { requests++; return { value: 1 }; };
+  const results = await Promise.all(Array.from({ length: 20 }, () => cache.get('same', fetchValue)));
+  assert.equal(requests, 1);
+  results[0].value = 99;
+  assert.equal((await cache.get('same', fetchValue)).value, 1);
+  time = 11;
+  await cache.get('same', fetchValue);
+  assert.equal(requests, 2);
+  await cache.get('b', fetchValue); await cache.get('c', fetchValue);
+  assert.equal(cache.entries.size, 2);
+  assert(cache.bytes <= 100);
+  await assert.rejects(cache.get('error', async () => { throw new Error('offline'); }));
+  assert.equal(cache.pending.size, 0);
+  assert.equal((await cache.get('error', fetchValue)).value, 1);
+  const { JavaService } = require('../lib/java-service');
+  let probes = 0;
+  const java = new JavaService({ processes: { spawnSync: () => { probes++; return { stderr: 'openjdk version "21.0.1"' }; } } });
+  assert.equal(java.getJavaMajorVersion(__filename), 21);
+  assert.equal(java.getJavaMajorVersion(__filename), 21);
+  assert.equal(probes, 1);
+  assert.equal(java.parseJavaMajorVersion('java version "1.8.0_100"'), 8);
+  console.log('PASS: 20 concurrent metadata reads = 1 request; cache limits, expiry, retry; Java probe reuse');
+  const { LoaderService } = require('../lib/loader-service');
+  const loader = new LoaderService({ normalizeModLoader: value => value, path: require('node:path'), os: require('node:os') });
+  assert.deepEqual(loader.parseMavenVersions('<versions><version>1.0</version><version>2.0</version></versions>'), ['1.0', '2.0']);
+  assert.equal(loader.rulesAllow([]), true);
+  assert.equal(loader.rulesAllow([{ action: 'disallow' }]), false);
+  assert.match(loader.mavenPathFromName('org.example:test:1.0'), /org\/example\/test\/1.0\/test-1.0.jar/);
+  for (const [type, method] of [['vanilla', 'ensureVanillaVersion'], ['fabric', 'ensureFabricVersion'], ['forge', 'ensureForgeVersion'], ['neoforge', 'ensureNeoForgeVersion'], ['quilt', 'ensureQuiltVersion']]) {
+    loader[method] = async () => ({ id: type });
+    const result = await loader.ensureSelectedLoaderVersion('test', { minecraftVersion: '1.20.1', modLoader: type });
+    assert.equal(result.name.toLowerCase(), type);
+  }
+  await assert.rejects(loader.ensureSelectedLoaderVersion('test', { modLoader: 'unknown' }));
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  let reduced = true, nextFrame = 1, observerCallback;
+  const frames = new Map(), listeners = new Map();
+  const events = { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) };
+  const document = { ...events, hidden: false, body: { classList: { contains: () => reduced } } };
+  const drawing = new Proxy({}, { get: (target, key) => key.startsWith('create') ? () => ({ addColorStop() {} }) : () => {} });
+  const browser = { ...events, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1 };
+  const sandbox = vm.createContext({ window: browser, document, MutationObserver: class { constructor(cb) { observerCallback = cb; } observe() {} disconnect() {} }, requestAnimationFrame: cb => { const id = nextFrame++; frames.set(id, cb); return id; }, cancelAnimationFrame: id => frames.delete(id) });
+  vm.runInContext(fs.readFileSync('renderer/ambient-background.js', 'utf8'), sandbox);
+  const background = new browser.AmbientBackground({ style: {}, getContext: () => drawing }, () => ['1,2,3', '3,2,1']);
+  const frame = time => { const [id, callback] = frames.entries().next().value; frames.delete(id); callback(time); };
+  background.start(); frame(100);
+  assert.equal(frames.size, 0, 'reduced motion draws once, not continuously');
+  reduced = false; observerCallback(); frame(200);
+  assert.equal(frames.size, 1);
+  document.hidden = true; listeners.get('visibilitychange')();
+  assert.equal(frames.size, 0, 'hidden canvas does not schedule frames');
+  background.dispose();
+  assert.equal(listeners.size, 0);
+  console.log('PASS: loader dispatch and rules; background stops in hidden/reduced-motion modes and releases listeners');
+}
+run().catch(error => { console.error(error); process.exitCode = 1; });

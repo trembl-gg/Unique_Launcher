@@ -16,7 +16,8 @@ function openTarget(target) {
   const value = String(target || '').trim();
   if (!value) return;
   if (process.platform === 'win32') {
-    childProcess.spawn('cmd.exe', ['/c', 'start', '', value], {
+    // Do not use `cmd /c start`: command separators such as `&` truncate OAuth query parameters.
+    childProcess.spawn('rundll32.exe', ['url.dll,FileProtocolHandler', value], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true

@@ -1,0 +1,50 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const assert = require('node:assert/strict');
+const { syncHorizonInstance } = require('../lib/horizon-instance');
+
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'unique-rust-instances-'));
+try {
+  const source = path.join(temporary, 'java');
+  const rust = path.join(temporary, 'rust-first');
+  const other = path.join(temporary, 'rust-second');
+  const write = (relative, text) => { const file = path.join(source, relative); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+  write('resourcepacks/test.zip', 'first pack');
+  write('resourcepacks/disabled.zip.disabled', 'disabled pack');
+  write('horizon-mods/test.hmod', 'native mod');
+  write('mods/java-mod.jar', 'Java bytecode');
+  write('mods/off.jar.disabled', 'disabled bytecode');
+  write('saves/Survival/level.dat', 'Java world');
+  write('options.txt', 'Java options');
+  let result = syncHorizonInstance(source, rust);
+  assert.equal(result.skippedJavaMods, 1);
+  assert.equal(result.importedFiles, 2);
+  assert(!fs.existsSync(path.join(rust, 'mods/java-mod.jar')));
+  assert(!fs.existsSync(path.join(rust, 'resourcepacks/disabled.zip.disabled')));
+  assert.equal(fs.readFileSync(path.join(rust, 'horizon-mods/test.hmod'), 'utf8'), 'native mod');
+  fs.writeFileSync(path.join(rust, 'saves/Survival/level.dat'), 'Rust progress');
+  fs.writeFileSync(path.join(rust, 'options.txt'), 'Rust settings');
+  write('resourcepacks/test.zip', 'updated pack');
+  syncHorizonInstance(source, rust);
+  assert.equal(fs.readFileSync(path.join(rust, 'resourcepacks/test.zip'), 'utf8'), 'updated pack');
+  assert.equal(fs.readFileSync(path.join(rust, 'saves/Survival/level.dat'), 'utf8'), 'Rust progress');
+  assert.equal(fs.readFileSync(path.join(source, 'saves/Survival/level.dat'), 'utf8'), 'Java world');
+  assert.equal(fs.readFileSync(path.join(rust, 'options.txt'), 'utf8'), 'Rust settings');
+  fs.renameSync(path.join(source, 'resourcepacks/test.zip'), path.join(source, 'resourcepacks/test.zip.disabled'));
+  syncHorizonInstance(source, rust);
+  assert(!fs.existsSync(path.join(rust, 'resourcepacks/test.zip')));
+  syncHorizonInstance(source, other);
+  assert.equal(fs.readFileSync(path.join(other, 'saves/Survival/level.dat'), 'utf8'), 'Java world');
+  fs.writeFileSync(path.join(rust, 'horizon-mods/test.hmod'), 'Rust edit');
+  write('horizon-mods/test.hmod', 'Java edit');
+  assert.throws(() => syncHorizonInstance(source, rust), /изменён/);
+  assert.equal(fs.readFileSync(path.join(rust, 'horizon-mods/test.hmod'), 'utf8'), 'Rust edit');
+  const linkedRoot = path.join(temporary, 'linked-rust');
+  fs.mkdirSync(linkedRoot);
+  fs.symlinkSync(path.join(temporary, 'missing-target'), path.join(linkedRoot, 'resourcepacks'), process.platform === 'win32' ? 'junction' : 'dir');
+  assert.throws(() => syncHorizonInstance(source, linkedRoot), /ссылкой/);
+  console.log('PASS: separate Rust instances, resource/native mod sync, disabled packs, Java mod report, worlds/settings preserved, modified-file conflict protection');
+} finally {
+  fs.rmSync(temporary, { recursive: true, force: true });
+}

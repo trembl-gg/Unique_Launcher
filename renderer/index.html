@@ -5,6 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UNIQUE LAUNCHER</title>
+  <style>html, body { background: #090611; }</style>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,7 +14,7 @@
     <div class="window-drag-region">
       <span class="titlebar-icon-wrap">
         <img class="titlebar-icon" id="titlebar-icon" alt="" />
-        <span class="brand-mark titlebar-mark" id="titlebar-icon-fallback">UL</span>
+        <img class="brand-mark titlebar-mark" id="titlebar-icon-fallback" src="../unique.png" alt="UNIQUE Launcher" style="width: 32px; height: 32px; object-fit: contain; border-radius: 8px;" />
       </span>
       <strong>UNIQUE LAUNCHER</strong>
     </div>
@@ -31,64 +32,35 @@
     </div>
   </header>
   <main class="app">
-    <section class="auth-screen" id="auth-screen">
+    <section class="startup-screen" id="startup-screen" aria-live="polite">
+  <div class="startup-loader"><img src="../unique.png" alt="UNIQUE" /><strong>UNIQUE LAUNCHER</strong><span id="startup-status">Загрузка лаунчера…</span><i></i></div>
+</section>
+<section class="auth-screen" id="auth-screen">
       <div class="auth-hero">
-        <div class="brand-mark">UL</div>
-        <p class="eyebrow">закрытый сервер</p>
+        <div class="brand-mark">
+          <img src="../unique.png" alt="UNIQUE Launcher" style="width: 64px; height: 64px; object-fit: contain;" />
+        </div>
         <h1>UNIQUE LAUNCHER</h1>
-        <p class="hero-copy">Единый вход, Fabric-сборка модов из папки проекта, свои скины, плащи и прямой запуск на сервер.</p>
+        <p class="hero-copy">Любимые сборки, моды и миры — в одном месте. Настройте свой Minecraft и возвращайтесь к игре.</p>
+        <div class="auth-features"><span>Свои сборки</span><span>Modrinth</span><span>Microsoft и офлайн</span></div>
       </div>
 
-      <div class="auth-card">
-        <div class="auth-tabs">
-          <button class="tab-button active" id="login-tab" type="button">Вход</button>
-          <button class="tab-button" id="register-tab" type="button">Регистрация</button>
-          <button class="tab-button" id="guest-tab" type="button">Гость</button>
+      <div class="auth-card auth-choice-card">
+        <div class="auth-choice-heading">
+          <h2>Добро пожаловать</h2>
+          <p>Лицензионный аккаунт Microsoft или локальный офлайн-профиль.</p>
         </div>
-
-        <form class="auth-form" id="login-form">
+        <button class="primary-button microsoft-login-button" id="microsoft-login-button" type="button">Войти с Microsoft</button>
+        <p class="hint auth-security">Вход откроется в браузере Microsoft. Лаунчер не запрашивает ваш пароль.</p>
+        <p class="message" id="login-message"></p>
+        <div class="auth-divider"><span>или</span></div>
+        <form class="auth-form offline-form" id="guest-form">
           <label>
-            Ник
-            <input id="login-nick" autocomplete="username" placeholder="Player_01" />
+            Никнейм для офлайн-игры
+            <input id="guest-nick" autocomplete="username" maxlength="16" placeholder="Player_01" />
           </label>
-          <label>
-            Пароль
-            <input id="login-password" type="password" autocomplete="current-password" placeholder="Минимум 6 символов" />
-          </label>
-          <label>
-            Google Authenticator
-            <input id="login-totp" inputmode="numeric" placeholder="Если включён" />
-          </label>
-          <button class="primary-button" id="login-button" type="submit">Войти в лаунчер</button>
-          <button class="ghost-button" id="microsoft-login-button" type="button">Microsoft license</button>
-          <p class="message" id="login-message"></p>
-        </form>
-
-        <form class="auth-form hidden" id="register-form">
-          <label>
-            Ник
-            <input id="register-nick" autocomplete="username" placeholder="Player_01" />
-          </label>
-          <label>
-            Пароль
-            <input id="register-password" type="password" autocomplete="new-password" placeholder="Минимум 6 символов" />
-          </label>
-          <label class="check-row">
-            <input id="register-totp" type="checkbox" />
-            <span>Подключить Google Authenticator</span>
-          </label>
-          <button class="primary-button" id="register-button" type="submit">Создать аккаунт</button>
-          <p class="message" id="register-message"></p>
-          <p class="totp-link" id="totp-hint"></p>
-        </form>
-
-        <form class="auth-form hidden" id="guest-form">
-          <label>
-            Ник для игры
-            <input id="guest-nick" autocomplete="username" placeholder="Player_01" />
-          </label>
-          <button class="primary-button" id="guest-button" type="submit">Войти как гость</button>
-          <p class="hint">Гость может запускать клиент и играть вне UNIQUE. Серверы UNIQUE доступны только после авторизации.</p>
+          <button class="ghost-button" id="guest-button" type="submit">Играть офлайн</button>
+          <p class="hint">Офлайн-профиль работает на одиночной игре и серверах без online-mode.</p>
           <p class="message" id="guest-message"></p>
         </form>
       </div>
@@ -101,31 +73,30 @@
         </button>
         <button class="rail-button" type="button" id="rail-open-library" data-section="library" aria-label="Каталог сборок" title="Каталог сборок">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
-        </button>
-        <button class="rail-button" type="button" data-section="mods" aria-label="Моды Modrinth" title="Моды">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12l2 4-8 12L4 8z" /><path d="M8.5 8h7" /><path d="M10 12h4" /></svg>
-        </button>
-        <button class="rail-button" type="button" data-section="profile" aria-label="Профиль" title="Профиль">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0v1a4 4 0 0 1-8 0z" /><path d="M5 21a7 7 0 0 1 14 0" /></svg>
-        </button>
+        </button>        <div class="rail-divider" aria-hidden="true"></div>
+        <div class="instance-rail" id="instance-rail" aria-label="Мои сборки"></div>
+        <button class="instance-rail-add" id="rail-create-instance" type="button" aria-label="Добавить сборку" title="Добавить сборку">+</button>
+        <div class="rail-divider rail-divider-bottom" aria-hidden="true"></div>
         <button class="rail-button" type="button" data-section="settings" aria-label="Настройки" title="Настройки">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M12 18v3" /><path d="M4.8 7.2 7 9.4" /><path d="m17 14.6 2.2 2.2" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.8 16.8 2.2-2.2" /><path d="m17 9.4 2.2-2.2" /><circle cx="12" cy="12" r="3.5" /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.5.9-2.2-.6-2.5 4.3 1.6 1.6v1.8l-1.6 1.6 2.5 4.3 2.2-.6 1.5.9.6 2.2h5l.6-2.2 1.5-.9 2.2.6 2.5-4.3-1.6-1.6v-1.8l1.6-1.6-2.5-4.3-2.2.6-1.5-.9-.6-2.2z"/><circle cx="12" cy="12" r="3.5"/></svg>
         </button>
       </aside>
       <nav class="top-nav">
         <div class="nav-brand">
           <span class="nav-brand-icon-wrap">
             <img class="nav-brand-icon" id="nav-brand-icon" alt="" />
-            <span class="brand-mark small nav-brand-fallback">UL</span>
+            <span class="brand-mark small nav-brand-fallback">
+              <img src="https://github.com/trembl-gg/Unique_Launcher/blob/master/unique.png?raw=true" alt="UNIQUE Launcher" style="width: 32px; height: 32px; object-fit: contain;" />
+            </span>
           </span>
           <div>
             <strong>UNIQUE LAUNCHER</strong>
-            <span id="server-label">Сервер проекта</span>
+            <span id="server-label">Minecraft Launcher</span>
           </div>
         </div>
         <div class="nav-actions">
           <button class="section-tab nav-square" type="button" data-section="settings" aria-label="Настройки" title="Настройки">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M12 18v3" /><path d="M4.8 7.2 7 9.4" /><path d="m17 14.6 2.2 2.2" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.8 16.8 2.2-2.2" /><path d="m17 9.4 2.2-2.2" /><circle cx="12" cy="12" r="3.5" /></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.5.9-2.2-.6-2.5 4.3 1.6 1.6v1.8l-1.6 1.6 2.5 4.3 2.2-.6 1.5.9.6 2.2h5l.6-2.2 1.5-.9 2.2.6 2.5-4.3-1.6-1.6v-1.8l1.6-1.6-2.5-4.3-2.2.6-1.5-.9-.6-2.2z"/><circle cx="12" cy="12" r="3.5"/></svg>
           </button>
           <button class="section-tab nav-square" type="button" data-section="profile" aria-label="Профиль" title="Профиль">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0v1a4 4 0 0 1-8 0z" /><path d="M5 21a7 7 0 0 1 14 0" /></svg>
@@ -134,7 +105,7 @@
             <img class="user-avatar" id="active-user-avatar" alt="" />
             <span id="active-user-name">offline</span>
           </span>
-          <button class="ghost-button" id="logout-button" type="button">Выйти</button>
+          <button class="ghost-button" id="logout-button" type="button" aria-label="Выйти" title="Выйти">Выйти</button>
         </div>
       </nav>
 
@@ -193,28 +164,30 @@
             <div class="scanline"></div>
             <div class="launch-copy">
               <p class="eyebrow">готов к запуску</p>
-              <h2>Minecraft <span id="version-label">1.20.1</span></h2>
-              <p id="server-info">UNIQUE Server</p>
+              <h2 id="launch-instance-name" data-i18n-ignore>Выберите сборку</h2><span id="version-label" hidden>1.20.1</span>
+              <p id="server-info">Minecraft Launcher</p>
             </div>
           </div>
 
+          <nav class="instance-home-tabs" aria-label="Сборка">
+            <button class="tiny-button" id="home-instance-content" type="button">Содержимое</button>
+            <button class="tiny-button" id="home-instance-files" type="button">Файлы</button>
+            <button class="tiny-button" id="home-instance-worlds" type="button">Миры</button>
+            <button class="tiny-button" id="home-instance-logs" type="button">Логи</button>
+          </nav>
           <div class="launch-actions">
-            <button class="play-button" id="launch-button" type="button">Играть</button>
+            <div class="game-launch-buttons"><button class="play-button" id="launch-button" type="button">Играть</button><button class="play-button hidden" id="launch-horizon" type="button">Играть (RUST)</button></div>
             <div class="main-build-picker">
               <label>
                 Сборка
                 <select id="active-instance"></select>
               </label>
-              <label>
-                Профиль
-                <select id="build-profile"></select>
-              </label>
-              <button class="tiny-button" id="open-build-library" type="button" data-section="library">Каталог сборок</button>
+              <button class="tiny-button" id="open-build-library" hidden type="button" data-section="library">Каталог сборок</button>
             </div>
             <div class="launch-status hidden" id="launch-status" aria-live="polite">Моды, скин, плащ и ресурс-паки будут подготовлены перед запуском.</div>
           </div>
 
-          <div class="launch-insights" aria-label="Статус запуска">
+          <div class="launch-insights hidden" aria-hidden="true">
             <div class="launch-insight">
               <span>Версия</span>
               <strong id="insight-version">1.20.1</strong>
@@ -227,22 +200,15 @@
 
           <div class="server-registry-list" id="server-registry-list"></div>
 
-          <section class="panel-section news-panel">
-            <div class="section-head">
-              <h3>Новости проекта</h3>
-              <button class="tiny-button" id="refresh-content" type="button">Обновить</button>
-            </div>
-            <div class="news-list" id="news-list"></div>
-          </section>
+          <!-- news panel removed by user request -->
         </section>
 
         <aside class="side-panel" data-section-panel="main">
           <section class="panel-section account-panel">
             <div class="section-head compact">
-              <h3>Playing as</h3>
-              <span>UNIQUE account</span>
+              <h3>Аккаунты</h3><button class="tiny-button" id="add-account" type="button">Добавить</button>
             </div>
-            <button class="account-card" id="open-profile-card" type="button">
+            <select class="account-card" id="account-switch" aria-label="Выбор аккаунта"></select><button class="account-card hidden" id="open-profile-card" type="button" hidden>
               <img class="account-avatar" id="account-avatar" alt="" />
               <span>
                 <strong id="account-name">offline</strong>
@@ -252,7 +218,7 @@
             </button>
           </section>
 
-          <section class="panel-section">
+          <section class="panel-section hidden" id="home-mods-panel" hidden>
             <div class="section-head">
               <h3>Моды проекта</h3>
               <button class="tiny-button" id="refresh-mods" type="button">Обновить</button>
@@ -276,6 +242,9 @@
                 <small id="cape-name">не выбран</small>
               </button>
             </div>
+            <button class="tiny-button" id="open-skin-album" type="button">Альбом скинов</button>
+            <div id="skin-album" class="skin-album hidden"></div>
+            <p id="skin-apply-status" class="hint" aria-live="polite"></p>
             <label class="skin-model-row">
               Skin model
               <select id="skin-model">
@@ -353,6 +322,14 @@
                 <button class="tiny-button" id="import-existing-instance" type="button">Import folder</button>
                 <button class="tiny-button" id="import-mrpack" type="button">Import .mrpack</button>
               </div>
+              <div class="instance-library-tools">
+                <input id="pack-import-url" type="url" placeholder="https://modrinth.com/modpack/..." aria-label="Ссылка на сборку Modrinth" />
+                <button id="pack-import-url-button" class="tiny-button" type="button">Импорт по ссылке</button>
+              </div>
+              <div class="instance-library-tools">
+                <input id="instance-search" type="search" placeholder="Поиск сборок по названию, версии или загрузчику" aria-label="Поиск сборок" />
+                <select id="instance-sort" aria-label="Порядок сборок"><option value="favorite">Сначала избранные</option><option value="name">По названию</option><option value="newest">Сначала новые</option></select>
+              </div>
               <div class="instance-list" id="instance-list"></div>
             </section>
 
@@ -398,7 +375,7 @@
 
         <section class="mods-panel" data-section-panel="mods">
           <div class="view-header">
-            <button class="back-button" type="button" data-section="main">
+            <button class="back-button" type="button" data-section="library">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6" /></svg>
               Назад
             </button>
@@ -417,7 +394,7 @@
                 <input id="modrinth-mod-search" placeholder="Sodium, Iris, JourneyMap..." />
                 <button class="tiny-button" id="modrinth-mod-search-button" type="button">Найти</button>
               </div>
-              <p class="hint" id="modrinth-mod-status">Моды устанавливаются в пользовательскую папку выбранной версии Minecraft.</p>
+              <p class="hint" id="modrinth-mod-status">Файлы устанавливаются только в выбранную сборку.</p>
               <div class="modrinth-results" id="modrinth-mod-results"></div>
             </section>
 
@@ -428,8 +405,15 @@
               </div>
               <button class="tiny-button" id="open-user-mods-panel" type="button">Открыть папку</button>
               <button class="tiny-button" id="check-modrinth-updates" type="button">Check Modrinth updates</button>
-              <ul class="mods-list" id="modrinth-installed-mods"></ul>
-              <p class="hint">Служебные моды UNIQUE скрыты. Здесь отображаются только пользовательские моды.</p>
+              <div class="content-manager-tabs" id="content-manager-tabs">
+  <button class="tiny-button" data-content-tab="mods" type="button">Моды</button>
+  <button class="tiny-button" data-content-tab="resourcepack" type="button">Текстуры</button>
+  <button class="tiny-button" data-content-tab="shader" type="button">Шейдеры</button>
+  <button class="tiny-button" data-content-tab="worlds" type="button">Миры</button>
+</div>
+<ul class="mods-list" id="modrinth-installed-mods"></ul>
+<ul class="mods-list hidden" id="content-manager-list"></ul>
+
             </section>
           </div>
         </section>
@@ -448,8 +432,8 @@
           <div class="settings-tabbar" aria-label="Вкладки настроек">
             <button class="settings-tab active" type="button" data-settings-tab="info">Информация</button>
             <button class="settings-tab" type="button" data-settings-tab="game">Настройки</button>
-            <button class="settings-tab" type="button" data-settings-tab="technical">Техническая информация</button>
-            <button class="settings-tab" type="button" data-settings-tab="debug">Debug меню</button>
+            <button class="settings-tab" type="button" data-settings-tab="debug">Диагностика</button>
+            <button class="settings-tab" type="button" data-settings-tab="experiments">Экспериментальные</button>
           </div>
           <div class="settings-grid">
             <section class="panel-section wide" data-settings-group="info">
@@ -463,24 +447,25 @@
                   <span id="info-launcher-version">UNIQUE</span>
                 </div>
                 <div class="readiness-item ok">
-                  <strong>Server support</strong>
-                  <span id="info-server-support">ожидание API</span>
-                </div>
-                <div class="readiness-item ok">
                   <strong>Profile</strong>
                   <span id="info-profile-name">offline</span>
                 </div>
               </div>
             </section>
 
-            <section class="panel-section wide" data-settings-group="technical">
-              <div class="section-head compact">
-                <h3>Готовность лаунчера</h3>
-                <span id="readiness-status">check</span>
+            <section class="panel-section wide hidden" data-settings-group="experiments">
+              <h3>Horizon · Minecraft на Rust</h3>
+              <p class="hint">Клиент Horizon и основные ресурсы Minecraft 26.3 включены в установщик. Звуки и музыка (~377 МБ) скачиваются при первом запуске Rust; затем доступны без повторной загрузки.</p>
+              <p class="hint">Экспериментальный клиент для Minecraft 26.3. Нужны Microsoft-аккаунт с Java Edition, horizon-client.exe и подготовленные ресурсы. Java-моды не поддерживаются. Для выбранной сборки создаётся отдельная Rust-копия миров, настроек и ресурс-паков. Java-моды и Java-шейдеры не запускаются; поддерживаются нативные моды в horizon-mods.</p>
+              <div class="horizon-settings">
+                <label>Клиент Horizon<input id="horizon-executable" readonly placeholder="Выберите horizon-client.exe" /></label>
+                <button class="tiny-button" id="choose-horizon-client" type="button">Выбрать клиент</button>
+                <label>Подготовленные ресурсы<input id="horizon-resources" readonly placeholder="Папка ресурсов horizon-prepare" /></label>
+                <button class="tiny-button" id="choose-horizon-resources" type="button">Выбрать ресурсы</button>
               </div>
-              <div class="readiness-grid" id="readiness-grid"></div>
+              <div class="profile-actions"><button class="tiny-button" id="horizon-download" type="button">Сайт Horizon</button></div>
+              <p class="hint" id="horizon-status" role="status"></p>
             </section>
-
             <section class="panel-section" data-settings-group="game">
               <div class="section-head">
                 <h3>Максимум ОЗУ</h3>
@@ -494,21 +479,13 @@
 
             <section class="panel-section" data-settings-group="game">
               <div class="section-head compact">
-                <h3>Версия и ядро</h3>
-                <span>Fabric</span>
+                <h3>Java</h3>
               </div>
-              <label>
-                Версия Minecraft
+              <div hidden class="hidden" aria-hidden="true">
                 <select id="minecraft-version"></select>
-              </label>
-              <label>
-                Проект
                 <select id="project-id"></select>
-              </label>
-              <label>
-                Fabric Loader
                 <input id="fabric-loader-version" placeholder="latest" />
-              </label>
+              </div>
               <label>
                 Java
                 <div class="inline-field choose-bar">
@@ -519,12 +496,24 @@
             </section>
 
             <section class="panel-section wide" data-settings-group="game">
+              <div class="section-head compact"><h3>Папка игры</h3></div>
+              <p class="file-line" id="game-storage-path" data-i18n-ignore></p>
+              <p class="hint">Перенос выполняется при следующем запуске. Исходная папка сохраняется. Нужна пустая папка и место для копии.</p>
+              <div class="inline-field choose-bar">
+                <button class="tiny-button" id="choose-game-storage" type="button">Изменить папку</button>
+                <button class="tiny-button" id="default-game-storage" type="button">Рядом с лаунчером</button>
+              </div>
+              <p class="hint" id="game-storage-status" role="status"></p>
+            </section>
+
+            <section class="panel-section wide" data-settings-group="game">
               <div class="section-head">
                 <h3>Обои главного меню</h3>
                 <button class="tiny-button choose-action" id="choose-wallpaper" type="button">Выбрать PNG/JPG</button>
               </div>
-              <p class="hint">PNG и JPG применяются в лаунчере и конвертируются в PNG-ресурс-пак для главного меню Minecraft.</p>
+              <p class="hint">Обои применяются только в лаунчере. Файлы и ресурс-паки Minecraft не изменяются.</p>
               <p class="file-line" id="wallpaper-name">обои не выбраны</p>
+              <div class="wallpaper-crop-controls hidden" id="wallpaper-crop-controls"><div class="wallpaper-crop-picker" id="wallpaper-crop-picker" role="slider" aria-label="Выберите область изображения"><span>Потяните фото, чтобы выбрать область</span></div><small class="hint">Кликните или потяните по фото — область сохранится.</small></div>
             </section>
 
             <section class="panel-section wide" data-settings-group="game">
@@ -536,12 +525,12 @@
                 <input id="hide-launcher-during-game" type="checkbox" />
                 <span>Скрывать лаунчер во время игры</span>
               </label>
-              <label class="check-row setting-check">
-                <input id="use-unique-mods" type="checkbox" />
-                <span>Использовать служебные моды UNIQUE</span>
-              </label>
-              <p class="hint">Если выключить служебные моды UNIQUE, лаунчер запустит обычный Fabric-клиент без автозахода на UNIQUE-серверы.</p>
               <p class="hint">Окно вернётся автоматически после закрытия Minecraft или остановки запуска.</p>
+              <label class="check-row setting-check">
+                <input id="show-snapshots" type="checkbox" />
+                <span>Показывать снапшоты Minecraft</span>
+              </label>
+              <p class="hint">Добавляет тестовые версии в список при создании сборки. Для снапшотов рекомендуется Vanilla; загрузчики модов доступны не для всех версий.</p>
             </section>
             <section class="panel-section wide" data-settings-group="game">
               <div class="section-head compact">
@@ -559,19 +548,37 @@
                   </select>
                 </label>
                 <label>
-                  Акцент
-                  <select id="accent-color">
-                    <option value="violet">Violet</option>
-                    <option value="cyan">Cyan</option>
-                    <option value="emerald">Emerald</option>
-                    <option value="rose">Rose</option>
+                  Язык
+                  <select id="language-select" aria-label="Язык интерфейса">
+                    <option value="ru">Русский</option>
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
                   </select>
                 </label>
+                <label>
+                  Акцент
+                  <input id="accent-color" type="color" value="#8b5cf6" />
+                </label>
+                <small class="hint">Изменения сохраняются автоматически</small>
                 <label class="check-row setting-check">
                   <input id="reduce-motion" type="checkbox" />
                   <span>Уменьшить анимации</span>
                 </label>
               </div>
+            </section>
+            <section class="panel-section hidden" data-settings-group="experiments">
+              <div class="section-head compact"><h3>Экспериментальные функции</h3><span>UNIQUE LABS</span></div>
+              <p class="hint">Настройки сохраняются на устройстве. Запуск Minecraft на Rust включён по умолчанию.</p>
+              <label class="check-row setting-check"><input type="checkbox" id="rust-minecraft" /><span>RUST-версия Minecraft · Horizon</span></label>
+              <p class="hint">Добавляет кнопку «Играть (RUST)» на главную. Запускает выбранную сборку в Horizon с совместимым содержимым; Java-оригинал сохраняется.</p>
+              <label class="check-row setting-check"><input type="checkbox" id="spotify-theme" /><span>Цвет лаунчера по обложке трека Spotify</span></label>
+              <p class="hint">Подключите Spotify в профиле. Ваш основной цвет останется сохранён.</p>
+              <label class="check-row setting-check"><input type="checkbox" id="music-visualizer" /><span>Визуализатор музыки</span></label>
+              <p class="hint">Показывает историю громкости системного звука, включая Spotify. Не записывает звук и не использует микрофон. Останавливается при сворачивании.</p>
+              <p class="hint" id="experiments-status" aria-live="polite"></p>
+              <label class="check-row setting-check"><input type="checkbox" id="streamer-mode" /><span>Streamer mode · BETA</span></label>
+              <p class="hint" id="streamer-hint">Скрывает окно лаунчера от поддерживаемых способов захвата Windows 10 2004+ / Windows 11. Не гарантирует скрытие во всех программах. Проверьте предпросмотр перед трансляцией. Minecraft и внешние окна не скрываются.</p>
+              <p class="hint" id="streamer-status" aria-live="polite"></p>
             </section>
             <section class="panel-section" data-settings-group="debug">
               <div class="section-head compact">
@@ -593,8 +600,6 @@
               <div class="profile-actions">
                 <button class="tiny-button" id="open-logs" type="button">Открыть логи</button>
                 <button class="tiny-button" id="export-diagnostics" type="button">Собрать ZIP</button>
-                <button class="tiny-button" id="analyze-crash" type="button">Анализ краша</button>
-                <button class="tiny-button" id="repair-game" type="button">Починить игру</button>
               </div>
               <p class="hint" id="diagnostics-message">Собирает Java, моды, логи и crash-reports без паролей и токенов.</p>
             </section>
@@ -648,13 +653,14 @@
               <p class="message" id="profile-message"></p>
             </section>
 
-            <section class="panel-section">
+            <section class="panel-section spotify-section">
               <div class="section-head compact">
                 <h3>Spotify</h3>
                 <span id="spotify-status">не привязан</span>
               </div>
               <div class="spotify-card">
-                <strong id="spotify-now-playing">Spotify не привязан.</strong>
+                <img id="spotify-cover" class="spotify-cover hidden" alt="Обложка трека" referrerpolicy="no-referrer" />
+                <strong id="spotify-now-playing" role="status" aria-live="polite">Spotify не привязан.</strong>
                 <span id="spotify-account">Музыка появится здесь после привязки.</span>
                 <div class="spotify-progress hidden" id="spotify-progress">
                   <div class="spotify-progress-track">
@@ -668,6 +674,7 @@
               </div>
               <div class="profile-actions">
                 <button class="tiny-button" id="connect-spotify" type="button">Привязать Spotify</button>
+                <button class="tiny-button hidden" id="cancel-spotify" type="button">Отменить</button>
                 <button class="tiny-button" id="refresh-spotify" type="button">Обновить</button>
                 <button class="tiny-button" id="disconnect-spotify" type="button">Отключить</button>
               </div>
@@ -678,6 +685,8 @@
         <section class="log-panel" data-section-panel="main">
           <div class="section-head">
             <h3>Журнал запуска</h3>
+            <button class="tiny-button" id="copy-launch-log" type="button">Копировать логи</button>
+            <button class="tiny-button" id="open-launch-logs" type="button">Папка логов</button>
             <button class="tiny-button" id="clear-log" type="button">Очистить</button>
           </div>
           <pre id="launch-log"></pre>
@@ -686,8 +695,30 @@
 
     </section>
   </main>
+  <dialog id="game-crash-screen" class="game-crash-screen"><h1>Игра завершилась с ошибкой</h1><p>Код завершения</p><strong id="game-crash-code" data-i18n-ignore></strong><p>Подробности доступны в журнале запуска.</p><button id="close-game-crash" type="button" class="primary-button">Закрыть</button></dialog>
+  <dialog id="instance-editor" class="instance-editor">
+    <form id="instance-editor-form">
+      <h2>Настройки сборки</h2>
+      <div class="instance-avatar-editor"><img id="instance-editor-preview" alt="Аватарка сборки" hidden /><label>Аватарка<input id="instance-icon-file" type="file" accept="image/png,image/jpeg,image/webp" /></label></div>
+      <p class="hint">Изображение обрезается по центру и сохраняется внутри лаунчера. Исходный файл больше не нужен.</p>
+      <button id="instance-icon-reset" type="button" class="tiny-button">Убрать аватарку</button>
+      <label>Название<input id="instance-editor-name" maxlength="80" required /></label>
+      <label>Параметры JVM<textarea id="instance-jvm-arguments" rows="3" maxlength="8192" spellcheck="false" placeholder="-XX:MaxGCPauseMillis=100 -Dexample=value"></textarea></label>
+      <label>Параметры Minecraft<textarea id="instance-game-arguments" rows="3" maxlength="8192" spellcheck="false" placeholder="--width 1280 --height 720"></textarea></label>
+      <p class="hint">Только для этой сборки. Значения с пробелами заключайте в кавычки. ОЗУ задаётся в настройках. Изменения применятся при следующем запуске.</p>
+      <label class="check-row"><input id="instance-editor-favorite" type="checkbox" /><span>В избранном</span></label>
+      <p id="instance-editor-error" role="alert"></p>
+      <div class="instance-editor-actions"><button type="button" id="instance-editor-cancel" class="ghost-button">Отмена</button><button type="submit" class="primary-button">Сохранить</button></div>
+    </form>
+  </dialog>
 
   <script src="webview2-bridge.js"></script>
+  <canvas id="music-visualizer-canvas" class="hidden" width="480" height="64" aria-label="Громкость системного звука"></canvas>
+  <script src="experiments.js"></script>
+  <script src="ambient-background.js"></script>
+  <script src="localizer.js"></script>
+  <script src="translations.js"></script>
+  <script src="file-drop.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

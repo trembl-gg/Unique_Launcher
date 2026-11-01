@@ -4,22 +4,32 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const childProcess = require('child_process');
+const { LaunchSession } = require('./lib/launch-session');
+const { prepareHorizonLaunch, startHorizon } = require('./lib/horizon-client');
+const { sendAuthCallback } = require('./lib/auth-callback');
+const { ensureHorizonResources } = require('./lib/horizon-resources');
+const { syncHorizonInstance } = require('./lib/horizon-instance');
+const { GameLogs } = require('./lib/game-logs');
+const { GameStorage } = require('./lib/game-storage');
+const { InstancePaths } = require('./lib/instance-paths');
+const { instanceLaunchOptions, mergeJvmArguments } = require('./lib/instance-launch-options');
+const { AsyncLocalStorage } = require('node:async_hooks');
+const instanceContext = new AsyncLocalStorage();
+const { SettingsService } = require('./lib/settings-service');
+const { InstanceRepository } = require('./lib/instance-repository');
+const { JavaService } = require('./lib/java-service');
+const { SkinService } = require('./lib/skin-service');
+const { LocalModMetadata } = require('./lib/local-mod-metadata');
+const { ContentImporter } = require('./lib/content-importer');
+const localModMetadata = new LocalModMetadata();
+const { RequestCache } = require('./lib/request-cache');
+const modrinthRequestCache = new RequestCache();
+const { DiscordPresence } = require('./lib/discord-presence');
 const http = require('http');
 const https = require('https');
 const Store = require('electron-store');
-const bcrypt = require('bcryptjs');
-const speakeasy = require('speakeasy');
 const AdmZip = require('adm-zip');
-const DiscordRPC = require('discord-rpc');
 const launcher = require('minecraft-launcher-core');
-let autoUpdater = null;
-let autoUpdateTimer = null;
-try {
-  ({ autoUpdater } = require('electron-updater'));
-} catch (err) {
-  autoUpdater = null;
-}
-
 function loadDotEnv() {
   const envPath = path.join(__dirname, '.env');
   if (!fs.existsSync(envPath)) return;
@@ -58,11 +68,14 @@ function readEnvValueOrFile(value) {
 }
 
 const store = new Store({ name: 'launcher-data' });
+const gameStorage = new GameStorage({ store, launcherRoot: __dirname, legacyRoot: path.join(app.getPath('userData'), 'minecraft'), onMigration: active => console.log(active ? 'UNIQUE_STORAGE_COPY_START' : 'UNIQUE_STORAGE_COPY_END') });
+const instancePaths = new InstancePaths({ store, base: () => gameStorage.root });
 
 const USERS_KEY = 'users';
 const SETTINGS_KEY = 'settings';
 const USER_SETTINGS_KEY = 'userSettings';
 const SESSION_KEY = 'lastSession';
+const ACCOUNTS_KEY = 'savedAccounts';
 const PROFILES_KEY = 'profiles';
 const BUILD_INSTANCES_KEY = 'buildInstances';
 const ASSET_UPLOADS_KEY = 'assetUploads';
@@ -81,11 +94,9 @@ const SPOTIFY_REDIRECT_PORT = Number(process.env.SPOTIFY_REDIRECT_PORT || 48128)
 const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${SPOTIFY_REDIRECT_PORT}/spotify/callback`;
 const SPOTIFY_SCOPES = ['user-read-currently-playing', 'user-read-playback-state'];
 const PROJECT_TPS_URL = process.env.PROJECT_TPS_URL || '';
-const DEFAULT_UNIQUE_API_URL = 'http://192.168.2.3';
-const UNIQUE_API_URL = (process.env.UNIQUE_API_URL || DEFAULT_UNIQUE_API_URL).replace(/\/+$/, '');
-const DEFAULT_UNIQUE_API_FALLBACK_URLS = UNIQUE_API_URL.includes('192.168.2.3')
-  ? 'http://213.108.170.58'
-  : '';
+const DEFAULT_UNIQUE_API_URL = '';
+const UNIQUE_API_URL = ''.replace(/\/+$/, ''); // Remote UNIQUE API disabled by default
+const DEFAULT_UNIQUE_API_FALLBACK_URLS = '';
 const UNIQUE_API_FALLBACK_URLS = String(process.env.UNIQUE_API_FALLBACK_URLS || DEFAULT_UNIQUE_API_FALLBACK_URLS)
   .split(',')
   .map((value) => value.trim().replace(/\/+$/, ''))
@@ -118,8 +129,8 @@ const REQUIRED_MODS_MANIFEST_TTL_MS = 5 * 60 * 1000;
 const MAX_REMOTE_ASSET_BYTES = Math.max(8, Number(process.env.UNIQUE_MAX_ASSET_MB || 32)) * 1024 * 1024;
 const APP_USER_MODEL_ID = 'com.unique.launcher';
 const PROJECT_SERVER = {
-  name: 'UNIQUE Server',
-  host: process.env.PROJECT_SERVER_HOST || '213.108.170.58',
+  name: 'Minecraft Launcher',
+  host: process.env.PROJECT_SERVER_HOST || '',
   port: Number(process.env.PROJECT_SERVER_PORT || 25565)
 };
 const FABRIC_META_URL = 'https://meta.fabricmc.net';
@@ -173,21 +184,17 @@ const microsoftAuthFlows = new Map();
 let microsoftAuthServer = null;
 let modManifestCache = null;
 let modManifestFetchedAt = 0;
-let rpcClient = null;
-let rpcReady = false;
-let rpcConnecting = false;
-let rpcDisabledUntil = 0;
-let rpcInterval = null;
-let rpcContext = null;
-let spotifyAuthServer = null;
+let spotifyAuthFlow = null;
 let launcherPublicConfigCache = null;
 let launcherPublicConfigFetchedAt = 0;
 let supportedVersionsCache = null;
+let supportedSnapshotVersionsCache = [];
 let supportedVersionsFetchedAt = 0;
 
 function resolveLauncherIcon() {
   const iconFiles = fs.readdirSync(__dirname).filter((file) => file.toLowerCase().endsWith('.ico'));
-  const preferred = iconFiles.find((file) => file === 'unique \u0438\u043a\u043e\u043d\u043a\u0430.ico')
+  const preferred = iconFiles.find((file) => file === 'launcher.ico')
+    || iconFiles.find((file) => file === 'unique \u0438\u043a\u043e\u043d\u043a\u0430.ico')
     || iconFiles.find((file) => file.toLowerCase().includes('unique') && file.toLowerCase().includes('\u0438\u043a\u043e\u043d'))
     || iconFiles.find((file) => file.toLowerCase() === 'unique.ico')
     || iconFiles[0];
@@ -255,12 +262,33 @@ function getWorkspaceModsPath() {
 }
 
 function getUserModsPath(minecraftVersion = 'global') {
-  const safeVersion = String(minecraftVersion || 'global').replace(/[^A-Za-z0-9_.-]/g, '_');
-  return path.join(app.getPath('userData'), 'user-mods', safeVersion);
+  const folder = instancePaths.content(getGameRoot(), 'mods');
+  const context = instanceContext.getStore();
+  if (context?.instanceId && store.get('legacyGameInstance', '') === `${context.owner}:${context.instanceId}` && !store.get('legacyModsMigrated', false)) {
+    const version = applySelectedInstanceToSettings(context.owner, getSettings(context.owner)).minecraftVersion || minecraftVersion;
+    const old = path.join(app.getPath('userData'), 'user-mods', String(version).replace(/[^A-Za-z0-9_.-]/g, '_'));
+    if (fs.existsSync(old)) for (const file of fs.readdirSync(old, { withFileTypes: true })) {
+      if (file.isFile() && /\.jar(\.disabled)?$/i.test(file.name) && !fs.existsSync(path.join(folder, file.name))) {
+        fs.copyFileSync(path.join(old, file.name), path.join(folder, file.name), fs.constants.COPYFILE_EXCL);
+        if (file.name.endsWith('.disabled')) {
+          const enabled = path.join(folder, file.name.slice(0, -9));
+          if (fs.existsSync(enabled) && !fs.existsSync(enabled + '.legacy-backup')) fs.renameSync(enabled, enabled + '.legacy-backup');
+        }
+      }
+    }
+    store.set('legacyModsMigrated', true);
+  }
+  return folder;
 }
 
 function getGameRoot() {
-  return path.join(app.getPath('userData'), 'minecraft');
+  const context = instanceContext.getStore();
+  return context ? instancePaths.root(context.owner, context.instanceId) : gameStorage.root;
+}
+
+function beginImportedInstance() {
+  const context = instanceContext.getStore();
+  if (context && !context.newInstance) { context.instanceId = createBuildInstanceId(); context.newInstance = true; }
 }
 
 function sha256File(filePath) {
@@ -372,210 +400,16 @@ function verifyDetachedSignature(payload, signature, publicKeyPem = UNIQUE_MANIF
   }
 }
 
-function normalizeJavaCandidate(candidate) {
-  if (!candidate) return null;
-  const trimmed = String(candidate).trim().replace(/^"|"$/g, '');
-  if (!trimmed) return null;
-
-  try {
-    if (fs.existsSync(trimmed) && fs.statSync(trimmed).isDirectory()) {
-      return path.join(trimmed, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
-    }
-  } catch (err) {
-    return null;
-  }
-
-  return trimmed;
+let javaService;
+function getJavaService() {
+  return javaService ||= new JavaService({ shell, downloadUrl: JAVA_DOWNLOAD_URL });
 }
-
-function getJavaMajorVersion(javaPath) {
-  const candidate = normalizeJavaCandidate(javaPath);
-  if (!candidate || !fs.existsSync(candidate)) return 0;
-
-  try {
-    const result = childProcess.spawnSync(candidate, ['-version'], {
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true
-    });
-    return parseJavaMajorVersion(`${result.stdout || ''}\n${result.stderr || ''}`);
-  } catch (err) {
-    return parseJavaMajorVersion(`${err.stdout || ''}\n${err.stderr || ''}`);
-  }
-}
-
-function parseJavaMajorVersion(output) {
-  const text = String(output || '');
-  const match = text.match(/version\s+"([^"]+)"/i) || text.match(/openjdk\s+([0-9][^\s]*)/i);
-  if (!match) return 0;
-
-  const version = match[1];
-  if (version.startsWith('1.')) {
-    return Number(version.split('.')[1]) || 0;
-  }
-
-  return Number(version.split('.')[0]) || 0;
-}
-
-function collectJavaCandidates(preferredPath = '') {
-  const candidates = [];
-  const add = (candidate) => {
-    const normalized = normalizeJavaCandidate(candidate);
-    if (normalized && !candidates.includes(normalized)) {
-      candidates.push(normalized);
-    }
-  };
-
-  add(preferredPath);
-  add(process.env.JAVA_HOME);
-
-  const javaExe = process.platform === 'win32' ? 'java.exe' : 'java';
-  const roots = process.platform === 'win32'
-    ? [
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Amazon Corretto'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Eclipse Adoptium'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Microsoft'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Java'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'BellSoft'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Zulu'),
-        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Java')
-      ]
-    : ['/usr/lib/jvm', '/Library/Java/JavaVirtualMachines'];
-
-  for (const root of roots) {
-    if (!root || !fs.existsSync(root)) continue;
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const fullPath = path.join(root, entry.name);
-      add(path.join(fullPath, 'bin', javaExe));
-      add(path.join(fullPath, 'Contents', 'Home', 'bin', javaExe));
-    }
-  }
-
-  try {
-    const whereCommand = process.platform === 'win32' ? 'where.exe' : 'which';
-    const output = childProcess.execFileSync(whereCommand, ['java'], {
-      encoding: 'utf8',
-      timeout: 3000,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore']
-    });
-    output.split(/\r?\n/).forEach(add);
-  } catch (err) {
-    // Ignore PATH lookup errors; explicit install folders above are usually enough.
-  }
-
-  return candidates;
-}
-
-function resolveJava17(preferredPath = '') {
-  const candidates = collectJavaCandidates(preferredPath);
-  let preferredMajor = 0;
-  for (const candidate of candidates) {
-    const major = getJavaMajorVersion(candidate);
-    if (candidate === normalizeJavaCandidate(preferredPath)) {
-      preferredMajor = major;
-    }
-    if (major >= 17) {
-      return { path: candidate, major };
-    }
-  }
-
-  const selected = preferredPath ? ` Выбранная Java: ${preferredMajor || 'не найдена'}.` : '';
-  const error = new Error(`Для Fabric нужна Java 17 или новее.${selected} Установи Java 17/21 или выбери java.exe в настройках лаунчера.`);
-  error.code = 'JAVA_REQUIRED';
-  throw error;
-}
-
-function installRecommendedJava() {
-  if (process.platform !== 'win32') {
-    shell.openExternal(JAVA_DOWNLOAD_URL);
-    return;
-  }
-
-  const command = [
-    'Start-Process',
-    '-Verb RunAs',
-    '-FilePath winget',
-    '-ArgumentList',
-    "'install EclipseAdoptium.Temurin.21.JRE --silent --accept-package-agreements --accept-source-agreements'"
-  ].join(' ');
-
-  try {
-    const child = childProcess.spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true
-    });
-    child.unref();
-  } catch (err) {
-    shell.openExternal(JAVA_DOWNLOAD_URL);
-  }
-}
-
-function configureAutoUpdates() {
-  if (!autoUpdater) {
-    return;
-  }
-
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.autoRunAppAfterInstall = true;
-  if (UNIQUE_UPDATE_URL) {
-    autoUpdater.setFeedURL({ provider: 'generic', url: UNIQUE_UPDATE_URL });
-  }
-
-  const broadcast = (channel, payload) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send(channel, payload);
-      }
-    }
-  };
-
-  autoUpdater.on('checking-for-update', () => broadcast('update-status', { state: 'checking' }));
-  autoUpdater.on('update-available', (info) => broadcast('update-status', { state: 'available', info }));
-  autoUpdater.on('update-not-available', (info) => broadcast('update-status', { state: 'none', info }));
-  autoUpdater.on('download-progress', (progress) => broadcast('update-status', { state: 'downloading', progress }));
-  autoUpdater.on('update-downloaded', (info) => broadcast('update-status', { state: 'downloaded', info, autoInstallOnQuit: true }));
-  autoUpdater.on('error', (error) => broadcast('update-status', {
-    state: 'error',
-    error: error?.message || String(error)
-  }));
-}
-
-async function checkForUpdates() {
-  if (!autoUpdater) {
-    return { success: false, disabled: true, error: 'electron-updater is not available.' };
-  }
-  if (!app.isPackaged && !UNIQUE_UPDATE_URL) {
-    return { success: false, disabled: true, error: 'Updates are available only in installed builds.' };
-  }
-  if (!UNIQUE_UPDATE_URL && !autoUpdater.getFeedURL?.()) {
-    return { success: false, disabled: true, error: 'UNIQUE_UPDATE_URL is not configured.' };
-  }
-
-  const result = await autoUpdater.checkForUpdates();
-  return { success: true, updateInfo: result?.updateInfo || null };
-}
-
-function scheduleAutoUpdates() {
-  if (!autoUpdater || (!app.isPackaged && !UNIQUE_UPDATE_URL)) {
-    return;
-  }
-
-  if (autoUpdateTimer) {
-    clearInterval(autoUpdateTimer);
-  }
-
-  setTimeout(() => {
-    checkForUpdates().catch(() => {});
-  }, 4000);
-
-  autoUpdateTimer = setInterval(() => {
-    checkForUpdates().catch(() => {});
-  }, AUTO_UPDATE_CHECK_INTERVAL_MS);
-}
+function normalizeJavaCandidate(...args) { return getJavaService().normalizeJavaCandidate(...args); }
+function getJavaMajorVersion(...args) { return getJavaService().getJavaMajorVersion(...args); }
+function parseJavaMajorVersion(...args) { return getJavaService().parseJavaMajorVersion(...args); }
+function collectJavaCandidates(...args) { return getJavaService().collectJavaCandidates(...args); }
+function resolveJava17(...args) { return getJavaService().resolveJava17(...args); }
+function installRecommendedJava(...args) { return getJavaService().installRecommendedJava(...args); }
 
 function getRecentFiles(dir, limit = 10) {
   if (!fs.existsSync(dir)) {
@@ -662,7 +496,7 @@ function collectDiagnostics() {
     },
     javaCandidates,
     mods,
-    logs: getRecentFiles(path.join(root, 'logs')),
+    logs: [...getRecentFiles(path.join(root, 'logs')), ...getRecentFiles(path.join(app.getPath('userData'), 'logs'), 20).filter(file => /^(minecraft-|native-host)/.test(file.name))],
     crashReports: getRecentFiles(path.join(root, 'crash-reports'))
   };
 }
@@ -715,6 +549,7 @@ function analyzeMinecraftCrash() {
   const hsErrors = getRecentFiles(__dirname, 3).filter((file) => /^hs_err_pid/i.test(file.name));
   const sources = [
     { name: 'latest.log', text: readTail(latestLog) },
+    ...getRecentFiles(path.join(app.getPath('userData'), 'logs'), 20).filter(file => /^minecraft-/.test(file.name)).slice(0, 1).map(file => ({ name: file.name, text: readTail(file.path) })),
     ...crashReports.map((file) => ({ name: file.name, text: readTail(file.path) })),
     ...hsErrors.map((file) => ({ name: file.name, text: readTail(file.path) }))
   ].filter((source) => source.text);
@@ -805,14 +640,6 @@ function sendCrashReport(nickname, analysis) {
   }).catch(() => {});
 }
 
-function getUsers() {
-  return store.get(USERS_KEY, {});
-}
-
-function saveUsers(users) {
-  store.set(USERS_KEY, users);
-}
-
 function normalizeModLoader(loader) {
   const normalized = String(loader || '').trim().toLowerCase();
   if (normalized === 'mod') return 'fabric';
@@ -829,223 +656,34 @@ function formatLoaderNameForLog(loader) {
   return 'Fabric';
 }
 
-function getDefaultSettings() {
-  return {
-    minecraftVersion: '1.20.1',
-    activeInstanceId: '',
-    buildProfile: 'normal',
-    projectId: 'unique',
-    loader: 'Fabric',
-    modLoader: 'fabric',
-    loaderVersion: 'latest',
-    fabricLoaderVersion: 'latest',
-    forgeVersion: 'latest',
-    neoforgeVersion: 'latest',
-    quiltLoaderVersion: 'latest',
-    memory: { min: 1024, max: 4096 },
-    wallpaper: null,
-    skin: null,
-    skinModel: 'auto',
-    cape: null,
-    javaPath: '',
-    hideLauncherDuringGame: true,
-    useUniqueMods: true,
-    appearance: {
-      theme: 'cosmic',
-      accent: 'violet',
-      reduceMotion: false
-    },
-    server: PROJECT_SERVER
-  };
+let settingsService;
+function getSettingsService() {
+  return settingsService ||= new SettingsService({ store, userKey: USER_SETTINGS_KEY, globalKey: SETTINGS_KEY, server: PROJECT_SERVER, normalizeLoader: normalizeModLoader, resolveServer: getProjectServerFromCache });
 }
+function getDefaultSettings(...args) { return getSettingsService().getDefaultSettings(...args); }
+function normalizeSettings(...args) { return getSettingsService().normalizeSettings(...args); }
+function getUserSettingsMap(...args) { return getSettingsService().getUserSettingsMap(...args); }
+function getSettings(...args) { return getSettingsService().getSettings(...args); }
+function saveSettings(...args) { return getSettingsService().saveSettings(...args); }
 
-function normalizeSettings(settings = {}, base = getDefaultSettings()) {
-  const defaults = getDefaultSettings();
-
-  return {
-    ...defaults,
-    ...base,
-    ...settings,
-    memory: { ...defaults.memory, ...(base.memory || {}), ...(settings.memory || {}) },
-    appearance: { ...defaults.appearance, ...(base.appearance || {}), ...(settings.appearance || {}) },
-    server: { ...defaults.server, ...(base.server || {}), ...(settings.server || {}) }
-  };
+let instanceRepository;
+function getInstanceRepository() {
+  return instanceRepository ||= new InstanceRepository({ store, key: BUILD_INSTANCES_KEY, normalizeModLoader, getSettings, saveSettings });
 }
-
-function getUserSettingsMap() {
-  return store.get(USER_SETTINGS_KEY, {});
+function normalizeInstanceOwner(...args) { return getInstanceRepository().normalizeInstanceOwner(...args); }
+function getBuildInstanceStore(...args) { return getInstanceRepository().getBuildInstanceStore(...args); }
+function saveBuildInstanceStore(...args) { return getInstanceRepository().saveBuildInstanceStore(...args); }
+function createBuildInstanceId(...args) { return getInstanceRepository().createBuildInstanceId(...args); }
+function normalizeBuildInstance(...args) { return getInstanceRepository().normalizeBuildInstance(...args); }
+function getBuildInstances(...args) { return getInstanceRepository().getBuildInstances(...args); }
+function saveBuildInstances(...args) { return getInstanceRepository().saveBuildInstances(...args); }
+function findBuildInstance(...args) { return getInstanceRepository().findBuildInstance(...args); }
+function upsertBuildInstance(owner, instance, select) {
+  const context = instanceContext.getStore();
+  if (context?.newInstance && !instance.id) instance = { ...instance, id: context.instanceId };
+  return getInstanceRepository().upsertBuildInstance(owner, instance, select);
 }
-
-function getSettings(nickname = '') {
-  const globalSettings = normalizeSettings(store.get(SETTINGS_KEY, {}));
-  const normalizedNickname = String(nickname || '').trim();
-  if (!normalizedNickname) {
-    return globalSettings;
-  }
-
-  const userSettings = getUserSettingsMap()[normalizedNickname];
-  const userBase = {
-    ...globalSettings,
-    skin: null,
-    skinModel: 'auto',
-    cape: null
-  };
-  return normalizeSettings(userSettings || {}, userBase);
-}
-
-function saveSettings(settings, nickname = '') {
-  const normalizedNickname = String(nickname || '').trim();
-  const maxMemory = Math.max(1024, Number(settings.memory?.max) || 4096);
-  const skinModel = ['auto', 'default', 'slim'].includes(settings.skinModel) ? settings.skinModel : 'auto';
-  const appearance = {
-    theme: ['cosmic', 'light', 'deep', 'contrast'].includes(settings.appearance?.theme) ? settings.appearance.theme : 'cosmic',
-    accent: ['violet', 'cyan', 'emerald', 'rose'].includes(settings.appearance?.accent) ? settings.appearance.accent : 'violet',
-    reduceMotion: Boolean(settings.appearance?.reduceMotion)
-  };
-  const modLoader = normalizeModLoader(settings.modLoader || settings.loader);
-  const next = {
-    ...getSettings(normalizedNickname),
-    ...settings,
-    memory: {
-      min: Math.min(1024, maxMemory),
-      max: maxMemory
-    },
-    skinModel,
-    appearance,
-    maxFps: Math.max(30, Number(settings.maxFps) || 60),
-    hideLauncherDuringGame: Boolean(settings.hideLauncherDuringGame),
-    useUniqueMods: settings.useUniqueMods !== false,
-    activeInstanceId: String(settings.activeInstanceId || '').trim(),
-    modLoader,
-    loader: modLoader === 'fabric' ? 'Fabric' : modLoader,
-    loaderVersion: String(settings.loaderVersion || 'latest').trim() || 'latest',
-    fabricLoaderVersion: String(settings.fabricLoaderVersion || settings.loaderVersion || 'latest').trim() || 'latest',
-    forgeVersion: String(settings.forgeVersion || settings.loaderVersion || 'latest').trim() || 'latest',
-    neoforgeVersion: String(settings.neoforgeVersion || settings.loaderVersion || 'latest').trim() || 'latest',
-    quiltLoaderVersion: String(settings.quiltLoaderVersion || settings.loaderVersion || 'latest').trim() || 'latest',
-    projectId: String(settings.projectId || 'unique'),
-    server: getProjectServerFromCache(String(settings.projectId || 'unique')) || PROJECT_SERVER
-  };
-
-  if (normalizedNickname) {
-    const userSettings = getUserSettingsMap();
-    userSettings[normalizedNickname] = next;
-    store.set(USER_SETTINGS_KEY, userSettings);
-  } else {
-    store.set(SETTINGS_KEY, next);
-  }
-  return next;
-}
-
-function normalizeInstanceOwner(nickname = '') {
-  return String(nickname || 'global').trim() || 'global';
-}
-
-function getBuildInstanceStore() {
-  return store.get(BUILD_INSTANCES_KEY, {});
-}
-
-function saveBuildInstanceStore(value) {
-  store.set(BUILD_INSTANCES_KEY, value);
-}
-
-function createBuildInstanceId() {
-  return `inst_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
-}
-
-function normalizeBuildInstance(instance = {}) {
-  const minecraftVersion = String(instance.minecraftVersion || instance.version || '1.20.1').trim();
-  const loader = normalizeModLoader(instance.loader || instance.modLoader || 'fabric');
-  const name = String(instance.name || '').trim() || `${loader.toUpperCase()} ${minecraftVersion}`;
-  const now = new Date().toISOString();
-
-  return {
-    id: String(instance.id || createBuildInstanceId()).trim(),
-    name,
-    minecraftVersion,
-    loader,
-    loaderVersion: String(instance.loaderVersion || 'latest').trim() || 'latest',
-    fabricLoaderVersion: String(instance.fabricLoaderVersion || instance.loaderVersion || 'latest').trim() || 'latest',
-    forgeVersion: String(instance.forgeVersion || instance.loaderVersion || 'latest').trim() || 'latest',
-    neoforgeVersion: String(instance.neoforgeVersion || instance.loaderVersion || 'latest').trim() || 'latest',
-    quiltLoaderVersion: String(instance.quiltLoaderVersion || instance.loaderVersion || 'latest').trim() || 'latest',
-    source: ['custom', 'modrinth', 'server', 'imported'].includes(String(instance.source || '').trim()) ? String(instance.source).trim() : 'custom',
-    projectId: String(instance.projectId || '').trim(),
-    modrinthProjectId: String(instance.modrinthProjectId || '').trim(),
-    modrinthSlug: String(instance.modrinthSlug || '').trim(),
-    packName: String(instance.packName || name).trim(),
-    createdAt: String(instance.createdAt || now),
-    updatedAt: now
-  };
-}
-
-function getBuildInstances(nickname = '') {
-  const storeValue = getBuildInstanceStore();
-  const owner = normalizeInstanceOwner(nickname);
-  const list = Array.isArray(storeValue[owner]) ? storeValue[owner] : [];
-  return list.map(normalizeBuildInstance).filter((instance) => instance.id);
-}
-
-function saveBuildInstances(nickname = '', instances = []) {
-  const storeValue = getBuildInstanceStore();
-  const owner = normalizeInstanceOwner(nickname);
-  storeValue[owner] = instances.map(normalizeBuildInstance);
-  saveBuildInstanceStore(storeValue);
-  return storeValue[owner];
-}
-
-function findBuildInstance(nickname = '', instanceId = '') {
-  const id = String(instanceId || '').trim();
-  if (!id) return null;
-  return getBuildInstances(nickname).find((instance) => instance.id === id) || null;
-}
-
-function upsertBuildInstance(nickname = '', instance = {}, select = true) {
-  const normalized = normalizeBuildInstance(instance);
-  const instances = getBuildInstances(nickname);
-  const index = instances.findIndex((entry) => entry.id === normalized.id);
-  if (index >= 0) {
-    instances[index] = { ...instances[index], ...normalized, updatedAt: new Date().toISOString() };
-  } else {
-    instances.unshift(normalized);
-  }
-  saveBuildInstances(nickname, instances);
-
-  if (select) {
-    const current = getSettings(nickname);
-    saveSettings({
-      ...current,
-      activeInstanceId: normalized.id,
-      minecraftVersion: normalized.minecraftVersion,
-      modLoader: normalized.loader,
-      loader: normalized.loader === 'fabric' ? 'Fabric' : normalized.loader,
-      loaderVersion: normalized.loaderVersion,
-      fabricLoaderVersion: normalized.fabricLoaderVersion,
-      forgeVersion: normalized.forgeVersion,
-      neoforgeVersion: normalized.neoforgeVersion,
-      quiltLoaderVersion: normalized.quiltLoaderVersion
-    }, nickname);
-  }
-
-  return normalized;
-}
-
-function applySelectedInstanceToSettings(nickname = '', settings = {}) {
-  const instance = findBuildInstance(nickname, settings.activeInstanceId);
-  if (!instance) return settings;
-
-  return {
-    ...settings,
-    minecraftVersion: instance.minecraftVersion || settings.minecraftVersion,
-    modLoader: instance.loader || settings.modLoader,
-    loader: instance.loader === 'fabric' ? 'Fabric' : instance.loader,
-    loaderVersion: instance.loaderVersion || settings.loaderVersion,
-    fabricLoaderVersion: instance.fabricLoaderVersion || settings.fabricLoaderVersion,
-    forgeVersion: instance.forgeVersion || settings.forgeVersion,
-    neoforgeVersion: instance.neoforgeVersion || settings.neoforgeVersion,
-    quiltLoaderVersion: instance.quiltLoaderVersion || settings.quiltLoaderVersion
-  };
-}
+function applySelectedInstanceToSettings(...args) { return getInstanceRepository().applySelectedInstanceToSettings(...args); }
 
 function getProjectServerFromCache(projectId) {
   const projects = modManifestCache?.projects || [];
@@ -1127,7 +765,8 @@ function saveUserProfileLinks(nickname, payload) {
 }
 
 function getDiscordButtons(profile) {
-  const buttons = [{ label: 'Discord UNIQUE', url: DISCORD_INVITE_URL }];
+  const language = getSettings().language;
+  const buttons = [{ label: language === 'ru' ? 'Скачать лаунчер' : language === 'es' ? 'Descargar launcher' : 'Download launcher', url: 'https://github.com/trembl-gg/Unique_Launcher/releases/latest' }];
   const socials = [];
   if (profile?.youtubeUrl) {
     socials.push({ label: 'YouTube', url: profile.youtubeUrl });
@@ -1640,10 +1279,10 @@ async function modrinthRequest(endpoint, params = {}) {
     url.searchParams.set(key, String(value));
   }
 
-  return requestJson('GET', url.toString(), {
+  return modrinthRequestCache.get(url.toString(), () => requestJson('GET', url.toString(), {
     timeoutMs: 12000,
     headers: getModrinthHeaders()
-  });
+  }));
 }
 
 function normalizeModrinthProject(hit = {}) {
@@ -1788,7 +1427,7 @@ async function checkModrinthInstalledUpdates(payload = {}) {
   const updates = [];
   for (const [hash, version] of Object.entries(result || {})) {
     const file = files.find((entry) => entry.sha1 === hash);
-    if (!file || !version) continue;
+    if (!file || !version || (version.files || []).some(candidate => candidate.hashes?.sha1 === hash)) continue;
     updates.push({
       fileName: file.name,
       hash,
@@ -2222,6 +1861,7 @@ async function installModrinthFileProject(payload = {}) {
 }
 
 async function installModrinthModpackProject(payload = {}) {
+  beginImportedInstance();
   const projectId = String(payload.projectId || payload.slug || '').trim();
   const selectedMinecraftVersion = String(payload.minecraftVersion || '1.20.1').trim();
   const selectedLoader = getModrinthLoaderFilter(payload.loader || payload.modLoader || 'fabric');
@@ -2331,6 +1971,7 @@ async function installModrinthModpackProject(payload = {}) {
 }
 
 async function importLocalMrpack(payload = {}) {
+  beginImportedInstance();
   const filePath = String(payload.filePath || '').trim();
   if (!filePath || !fs.existsSync(filePath) || !filePath.toLowerCase().endsWith('.mrpack')) {
     throw new Error('Select a valid .mrpack file.');
@@ -2417,6 +2058,7 @@ function detectInstanceLoader(sourcePath) {
 }
 
 function importExistingMinecraftBuild(payload = {}) {
+  beginImportedInstance();
   const sourcePath = String(payload.sourcePath || '').trim();
   if (!sourcePath || !fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) {
     throw new Error('Select a valid Minecraft instance folder.');
@@ -2613,7 +2255,7 @@ async function getModManifest(force = false) {
 function getFallbackProjects() {
   return [{
     id: 'unique',
-    name: 'UNIQUE Server',
+    name: 'Minecraft Launcher',
     description: 'Main UNIQUE project',
     server: PROJECT_SERVER,
     versions: FALLBACK_SUPPORTED_VERSIONS
@@ -2655,7 +2297,7 @@ function compareMinecraftReleaseIds(left, right) {
 }
 
 function isSupportedMinecraftRelease(versionId) {
-  return compareMinecraftReleaseIds(versionId, '1.16') >= 0;
+  return Boolean(parseMinecraftReleaseId(versionId)) && compareMinecraftReleaseIds(versionId, '1.16') >= 0;
 }
 
 function uniqueVersionIds(ids) {
@@ -2672,6 +2314,9 @@ function uniqueVersionIds(ids) {
 async function getOfficialReleaseVersionsAfter116() {
   const manifest = await requestJson('GET', MOJANG_VERSION_MANIFEST_URL, { timeoutMs: 10000 });
   const versions = Array.isArray(manifest?.versions) ? manifest.versions : [];
+  supportedSnapshotVersionsCache = versions
+    .filter(entry => entry?.type === 'snapshot' && Date.parse(entry.releaseTime) >= Date.parse('2020-06-23'))
+    .map(entry => String(entry.id || '').trim()).filter(Boolean);
   return versions
     .filter((entry) => entry?.type === 'release')
     .map((entry) => String(entry.id || '').trim())
@@ -2735,7 +2380,7 @@ async function getSupportedVersions() {
 
   supportedVersionsCache = uniqueVersionIds([
     ...officialIds,
-    ...manifestIds,
+    ...manifestIds.filter(isSupportedMinecraftRelease),
     ...FALLBACK_SUPPORTED_VERSIONS
   ]);
   supportedVersionsFetchedAt = Date.now();
@@ -2796,6 +2441,7 @@ async function getLauncherPublicConfig() {
 }
 
 async function getSpotifyClientId(profile = null) {
+  if (profile?.spotify?.clientId) return String(profile.spotify.clientId).trim();
   if (SPOTIFY_CLIENT_ID) {
     return SPOTIFY_CLIENT_ID;
   }
@@ -2806,7 +2452,11 @@ async function getSpotifyClientId(profile = null) {
     return remoteClientId;
   }
 
-  return String(profile?.spotify?.clientId || '').trim();
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, 'spotify-client.json'), 'utf8')).clientId || '').trim();
+  } catch {
+    return '';
+  }
 }
 
 function spotifyAuthHeader(clientId, clientSecret) {
@@ -2962,6 +2612,7 @@ function formatSpotifyNowPlaying(body) {
     text,
     displayText: body.is_playing ? `Слушает: ${artists ? `${artists} - ` : ''}${title}` : '',
     url: body.item.external_urls?.spotify || '',
+    coverUrl: (body.item.album?.images || body.item.images || []).find((image) => image.url?.startsWith('https://'))?.url || '',
     progressMs: Math.max(0, Number(body.progress_ms || 0)),
     durationMs: Math.max(0, Number(body.item.duration_ms || 0)),
     updatedAt: Date.now()
@@ -3012,21 +2663,29 @@ async function getSpotifyNowPlaying(nickname) {
   return { connected: true, ...formatSpotifyNowPlaying(body) };
 }
 
+function finishSpotifyAuth(flow, result) {
+  if (flow.finished) return;
+  flow.finished = true;
+  clearTimeout(flow.timer);
+  if (flow.server.listening) flow.server.close();
+  flow.resolve(result);
+}
+
 async function connectSpotify(nickname) {
   const clientId = await getSpotifyClientId(getUserProfile(nickname));
   if (!clientId) {
     return {
       success: false,
-      error: 'Spotify Client ID не настроен. Укажи SPOTIFY_CLIENT_ID на API-сервере или в локальном .env.'
+      error: 'Spotify Client ID не настроен. Добавьте SPOTIFY_CLIENT_ID в .env и пересоберите лаунчер.'
     };
   }
 
-  if (spotifyAuthServer) {
-    spotifyAuthServer.close();
-    spotifyAuthServer = null;
-  }
-
   const redirectUrl = new URL(SPOTIFY_REDIRECT_URI);
+  if (redirectUrl.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(redirectUrl.hostname) || !redirectUrl.port || redirectUrl.username || redirectUrl.password || redirectUrl.search || redirectUrl.hash) {
+    return { success: false, error: 'Для Spotify нужен локальный callback, например http://127.0.0.1:48128/spotify/callback. Зарегистрируйте тот же адрес в Spotify Dashboard.' };
+  }
+  if (spotifyAuthFlow) finishSpotifyAuth(spotifyAuthFlow, { success: false, error: 'Привязка Spotify отменена.' });
+
   const state = crypto.randomBytes(18).toString('hex');
   const pkce = createSpotifyPkcePair();
   const authUrl = new URL('https://accounts.spotify.com/authorize');
@@ -3038,40 +2697,40 @@ async function connectSpotify(nickname) {
   authUrl.searchParams.set('code_challenge_method', 'S256');
   authUrl.searchParams.set('code_challenge', pkce.challenge);
 
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      if (spotifyAuthServer) {
-        spotifyAuthServer.close();
-        spotifyAuthServer = null;
-      }
-      resolve({ success: false, error: 'Spotify не ответил за 2 минуты.' });
-    }, 120000);
-
-    spotifyAuthServer = http.createServer(async (request, response) => {
+  const flow = { id: crypto.randomBytes(18).toString('hex'), nickname, finished: false, processing: false };
+  flow.completion = new Promise(resolve => { flow.resolve = resolve; });
+  spotifyAuthFlow = flow;
+  flow.server = http.createServer(async (request, response) => {
+      const reply = (status, code) => sendAuthCallback(response, { provider: 'Spotify', status, code, language: getSettings(nickname).language });
       const requestUrl = new URL(request.url, SPOTIFY_REDIRECT_URI);
       if (requestUrl.pathname !== redirectUrl.pathname) {
-        response.writeHead(404);
-        response.end('Not found');
+        reply('notfound', 404);
         return;
       }
 
       if (requestUrl.searchParams.get('state') !== state) {
-        response.writeHead(400);
-        response.end('Bad state');
-        clearTimeout(timer);
-        resolve({ success: false, error: 'Spotify вернул неверный state.' });
+        reply('invalid', 400);
         return;
       }
 
+      if (flow.finished || flow.processing) {
+        reply('handled', 409);
+        return;
+      }
+      const oauthError = requestUrl.searchParams.get('error');
+      if (oauthError) {
+        reply('denied', 400);
+        finishSpotifyAuth(flow, { success: false, error: oauthError === 'access_denied' ? 'Доступ Spotify не разрешён. Нажмите «Привязать Spotify», чтобы повторить.' : `Spotify: ${oauthError}` });
+        return;
+      }
       const code = requestUrl.searchParams.get('code');
       if (!code) {
-        response.writeHead(400);
-        response.end('No code');
-        clearTimeout(timer);
-        resolve({ success: false, error: 'Spotify не вернул код авторизации.' });
+        reply('missing', 400);
+        finishSpotifyAuth(flow, { success: false, error: 'Spotify не вернул код авторизации.' });
         return;
       }
 
+      flow.processing = true;
       try {
         const token = await requestSpotifyToken({
           grant_type: 'authorization_code',
@@ -3083,7 +2742,12 @@ async function connectSpotify(nickname) {
           clientSecret: '',
           profile: { spotify: { clientId } }
         });
+        if (!token.access_token || !token.refresh_token) throw new Error('Spotify не вернул токены. Повторите привязку.');
         const spotifyUser = await getSpotifyUser(token.access_token);
+        if (flow.finished) {
+          reply('expired', 410);
+          return;
+        }
         const profiles = getProfiles();
         const profile = getUserProfile(nickname);
         profile.spotify = {
@@ -3101,36 +2765,53 @@ async function connectSpotify(nickname) {
           spotifyDisplayName: profile.spotify.displayName
         });
 
-        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end('<html><body>Spotify подключен. Можно вернуться в UNIQUE LAUNCHER.</body></html>');
-        clearTimeout(timer);
-        resolve({ success: true, profile: sanitizeProfile(profile) });
+        reply('success', 200);
+        finishSpotifyAuth(flow, { success: true, profile: sanitizeProfile(profile) });
       } catch (err) {
-        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        response.end('Spotify auth failed');
-        clearTimeout(timer);
+        reply('failed', 500);
         const error = isSpotifyCredentialError(err)
           ? `Spotify вернул ${err.code || 'invalid_request'}. Проверь callback в Spotify Dashboard: ${SPOTIFY_REDIRECT_URI}`
           : (err.message || String(err));
-        resolve({ success: false, error });
-      } finally {
-        if (spotifyAuthServer) {
-          spotifyAuthServer.close();
-          spotifyAuthServer = null;
-        }
+        finishSpotifyAuth(flow, { success: false, error });
       }
     });
 
-    spotifyAuthServer.listen(Number(redirectUrl.port || SPOTIFY_REDIRECT_PORT), redirectUrl.hostname, () => {
-      shell.openExternal(authUrl.toString());
+  flow.timer = setTimeout(() => {
+    finishSpotifyAuth(flow, { success: false, error: 'Spotify не ответил за 2 минуты. Повторите привязку.' });
+    if (spotifyAuthFlow === flow) spotifyAuthFlow = null;
+  }, 120000);
+  flow.server.on('error', err => finishSpotifyAuth(flow, { success: false, error: `Не удалось открыть callback Spotify (${SPOTIFY_REDIRECT_URI}): ${err.message}` }));
+  try {
+    await new Promise((resolve, reject) => {
+      flow.server.once('listening', resolve);
+      flow.server.once('error', reject);
+      flow.server.listen(Number(redirectUrl.port), redirectUrl.hostname.replace(/^\[|\]$/g, ''));
     });
+    return { success: true, flowId: flow.id, authorizationUrl: authUrl.toString() };
+  } catch (err) {
+    finishSpotifyAuth(flow, { success: false, error: err.message });
+    if (spotifyAuthFlow === flow) spotifyAuthFlow = null;
+    return { success: false, error: err.code === 'EADDRINUSE' ? 'Порт Spotify занят. Завершите другую привязку или перезапустите лаунчер.' : err.message };
+  }
+}
 
-    spotifyAuthServer.on('error', (err) => {
-      clearTimeout(timer);
-      spotifyAuthServer = null;
-      resolve({ success: false, error: err.message || String(err) });
-    });
-  });
+async function completeSpotifyAuth(nickname, flowId) {
+  const flow = spotifyAuthFlow;
+  if (!flow || flow.nickname !== nickname || flow.id !== flowId) {
+    return { success: false, error: 'Привязка Spotify истекла. Попробуйте ещё раз.' };
+  }
+  const result = await flow.completion;
+  if (spotifyAuthFlow === flow) spotifyAuthFlow = null;
+  return result;
+}
+
+function cancelSpotifyAuth(nickname, flowId) {
+  const flow = spotifyAuthFlow;
+  if (flow && flow.nickname === nickname && (!flowId || flow.id === flowId)) {
+    finishSpotifyAuth(flow, { success: false, error: 'Привязка Spotify отменена.' });
+    spotifyAuthFlow = null;
+  }
+  return { success: true };
 }
 
 async function getServerTps() {
@@ -3174,131 +2855,16 @@ function withTimeout(promise, timeoutMs, message) {
   });
 }
 
-function disconnectDiscordRpc() {
-  rpcReady = false;
-  if (rpcClient) {
-    if (typeof rpcClient.destroy === 'function') {
-      Promise.resolve(rpcClient.destroy()).catch(() => {});
-    }
-  }
-  rpcClient = null;
+let discordPresence;
+function getDiscordService() {
+  return discordPresence ||= new DiscordPresence({ clientId: DISCORD_CLIENT_ID, launcherName: LAUNCHER_NAME, getUserProfile, getDiscordButtons, store, sessionKey: SESSION_KEY, withTimeout });
 }
-
-function ensureDiscordRpc() {
-  if (!DISCORD_CLIENT_ID || rpcReady || rpcConnecting || Date.now() < rpcDisabledUntil) {
-    return;
-  }
-
-  rpcConnecting = true;
-  try {
-    DiscordRPC.register(DISCORD_CLIENT_ID);
-    const client = new DiscordRPC.Client({ transport: 'ipc' });
-    rpcClient = client;
-
-    client.on('ready', () => {
-      rpcReady = true;
-      rpcConnecting = false;
-      if (rpcContext) {
-        updateDiscordRpc(rpcContext);
-      }
-    });
-
-    withTimeout(client.login({ clientId: DISCORD_CLIENT_ID }), 3500, 'Discord Activity connection timed out')
-      .catch(() => {
-        if (rpcClient === client) {
-          disconnectDiscordRpc();
-        }
-        rpcDisabledUntil = Date.now() + 60000;
-      })
-      .finally(() => {
-        if (rpcClient === client && !rpcReady) {
-          rpcConnecting = false;
-        }
-      });
-  } catch (err) {
-    rpcConnecting = false;
-    rpcDisabledUntil = Date.now() + 60000;
-    disconnectDiscordRpc();
-  }
-}
-
-async function updateDiscordRpc(context = rpcContext) {
-  if (!context) {
-    return;
-  }
-
-  rpcContext = context;
-  if (!rpcReady || !rpcClient) {
-    ensureDiscordRpc();
-    return;
-  }
-
-  const tps = await getServerTps();
-  const profile = context.nickname ? getUserProfile(context.nickname) : null;
-  const activity = {
-    type: 0,
-    name: LAUNCHER_NAME,
-    details: context.details || `Playing via ${LAUNCHER_NAME}`,
-    state: context.state || 'In launcher',
-    startTimestamp: context.startTimestamp || Date.now(),
-    largeImageText: LAUNCHER_NAME,
-    buttons: getDiscordButtons(profile)
-  };
-
-  if (context.nickname) {
-    activity.details = `Через ${LAUNCHER_NAME} | Ник: ${context.nickname}`;
-    activity.state = context.memoryMax
-      ? `${PROJECT_SERVER.name} | RAM ${context.memoryMax} MB | TPS ${tps}`
-      : 'В лаунчере';
-  }
-
-  rpcClient.setActivity(activity).catch(() => {});
-}
-
-function startPlayingDiscordRpc(user, settings) {
-  rpcContext = {
-    nickname: user.nickname,
-    memoryMax: settings.memory.max,
-    startTimestamp: Date.now()
-  };
-  updateDiscordRpc(rpcContext);
-
-  if (rpcInterval) {
-    clearInterval(rpcInterval);
-  }
-
-  rpcInterval = setInterval(() => {
-    updateDiscordRpc(rpcContext);
-  }, 15000);
-}
-
-function setLauncherDiscordRpc(nickname) {
-  if (!nickname) return;
-  updateDiscordRpc({
-    ...(rpcContext || {}),
-    nickname,
-    memoryMax: null,
-    details: `In ${LAUNCHER_NAME}`,
-    state: 'Launcher is open',
-    startTimestamp: rpcContext?.startTimestamp || Date.now()
-  });
-}
-
-function stopPlayingDiscordRpc() {
-  if (rpcInterval) {
-    clearInterval(rpcInterval);
-    rpcInterval = null;
-  }
-
-  const nickname = rpcContext?.nickname;
-  rpcContext = {
-    details: `In ${LAUNCHER_NAME}`,
-    state: 'Launcher is open',
-    startTimestamp: Date.now(),
-    ...(nickname ? { nickname, memoryMax: null } : {})
-  };
-  updateDiscordRpc(rpcContext);
-}
+function disconnectDiscordRpc(...args) { return getDiscordService().disconnectDiscordRpc(...args); }
+function ensureDiscordRpc(...args) { return getDiscordService().ensureDiscordRpc(...args); }
+function updateDiscordRpc(...args) { return getDiscordService().updateDiscordRpc(...args); }
+function startPlayingDiscordRpc(...args) { return getDiscordService().startPlayingDiscordRpc(...args); }
+function setLauncherDiscordRpc(...args) { return getDiscordService().setLauncherDiscordRpc(...args); }
+function stopPlayingDiscordRpc(...args) { return getDiscordService().stopPlayingDiscordRpc(...args); }
 
 function readJarModsFromDir(modsPath) {
   ensureDir(modsPath);
@@ -3318,7 +2884,8 @@ function readJarModsFromDir(modsPath) {
         enabled,
         sizeMb: Number((stat.size / 1024 / 1024).toFixed(2)),
         modified: stat.mtime.toISOString(),
-        sha256: sha256File(fullPath)
+        ...localModMetadata.read(fullPath, stat),
+        // Hashes are computed during integrity checks, not UI refreshes.
       };
     });
 }
@@ -3341,6 +2908,7 @@ function resolveUserModPath(minecraftVersion, fileName) {
 }
 
 function setUserModEnabled(minecraftVersion, fileName, enabled) {
+  if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
   const sourcePath = resolveUserModPath(minecraftVersion, fileName);
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('Mod file was not found.');
@@ -3373,20 +2941,25 @@ function setUserModEnabled(minecraftVersion, fileName, enabled) {
 }
 
 function scheduleUserModDelete(minecraftVersion, fileName) {
+  if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
   const targetPath = resolveUserModPath(minecraftVersion, fileName);
   if (!targetPath || !fs.existsSync(targetPath)) {
     throw new Error('Mod file was not found.');
   }
 
   const token = crypto.randomBytes(12).toString('hex');
+  const trash = path.join(path.dirname(targetPath), '.trash');
+  ensureDir(trash);
+  const removedPath = path.join(trash, token);
+  fs.renameSync(targetPath, removedPath);
   const entry = {
     token,
-    path: targetPath,
-    gamePath: path.join(getGameRoot(), 'mods', path.basename(targetPath).replace(/\.disabled$/i, '')),
+    path: removedPath,
+    originalPath: targetPath,
     createdAt: Date.now(),
     timer: null
   };
-  entry.timer = setTimeout(() => finalizePendingUserModDelete(token), 5000);
+  entry.timer = setTimeout(() => { try { finalizePendingUserModDelete(token); } catch (error) { console.error('Pending mod cleanup failed:', error.code); } }, 5000);
   pendingUserModDeletes.set(token, entry);
   return { token, name: path.basename(targetPath), deleteAt: entry.createdAt + 5000 };
 }
@@ -3394,6 +2967,8 @@ function scheduleUserModDelete(minecraftVersion, fileName) {
 function undoUserModDelete(token) {
   const entry = pendingUserModDeletes.get(String(token || ''));
   if (!entry) return false;
+  if (fs.existsSync(entry.originalPath)) throw new Error('Файл уже существует, он не был перезаписан.');
+  fs.renameSync(entry.path, entry.originalPath);
   clearTimeout(entry.timer);
   pendingUserModDeletes.delete(entry.token);
   return true;
@@ -3406,9 +2981,6 @@ function finalizePendingUserModDelete(token) {
   pendingUserModDeletes.delete(entry.token);
   if (fs.existsSync(entry.path)) {
     fs.rmSync(entry.path, { force: true });
-  }
-  if (fs.existsSync(entry.gamePath)) {
-    fs.rmSync(entry.gamePath, { force: true });
   }
   return true;
 }
@@ -3616,6 +3188,7 @@ async function enforceModIntegrity(root, versionProfile, buildProfile = 'normal'
 function syncUserModsToGameRoot(root, minecraftVersion) {
   const sourceDir = getUserModsPath(minecraftVersion);
   const targetDir = path.join(root, 'mods');
+  if (path.resolve(sourceDir) === path.resolve(targetDir)) return [];
   ensureDir(sourceDir);
   ensureDir(targetDir);
 
@@ -4042,423 +3615,32 @@ function buildPlayerAssets(root, settings) {
   return null;
 }
 
-async function ensureVanillaVersion(root, minecraftVersion) {
-  const versionDir = path.join(root, 'versions', minecraftVersion);
-  ensureDir(versionDir);
-
-  const versionFile = await launcher.handler.getVersion(minecraftVersion, versionDir);
-  const jarPath = path.join(versionDir, `${minecraftVersion}.jar`);
-
-  if (!fs.existsSync(jarPath)) {
-    await launcher.handler.getJar(versionFile, minecraftVersion, versionDir);
-  } else if (!fs.existsSync(path.join(versionDir, `${minecraftVersion}.json`))) {
-    fs.writeFileSync(path.join(versionDir, `${minecraftVersion}.json`), JSON.stringify(versionFile, null, 2), 'utf8');
-  }
-
-  return { versionFile, jarPath };
-}
-
-async function ensureFabricVersion(root, minecraftVersion, requestedLoaderVersion = 'latest') {
-  const encodedGameVersion = encodeURIComponent(minecraftVersion);
-  let loaderVersion = requestedLoaderVersion;
-
-  if (!loaderVersion || loaderVersion === 'latest') {
-    const versions = await getJson(`${FABRIC_META_URL}/v2/versions/loader/${encodedGameVersion}`);
-    const stable = versions.find((entry) => entry.loader?.stable) || versions[0];
-    if (!stable) {
-      throw new Error(`Fabric Loader was not found for Minecraft ${minecraftVersion}.`);
-    }
-    loaderVersion = stable.loader.version;
-  }
-
-  const encodedLoaderVersion = encodeURIComponent(loaderVersion);
-  const profile = await getJson(`${FABRIC_META_URL}/v2/versions/loader/${encodedGameVersion}/${encodedLoaderVersion}/profile/json`);
-  const fabricId = profile.id || `fabric-loader-${loaderVersion}-${minecraftVersion}`;
-  const fabricDir = path.join(root, 'versions', fabricId);
-  ensureDir(fabricDir);
-
-  const vanilla = await ensureVanillaVersion(root, minecraftVersion);
-  fs.writeFileSync(path.join(fabricDir, `${fabricId}.json`), JSON.stringify(profile, null, 2), 'utf8');
-  fs.copyFileSync(vanilla.jarPath, path.join(fabricDir, `${fabricId}.jar`));
-
-  return {
-    id: fabricId,
-    loaderVersion,
-    jvmArgs: (profile.arguments?.jvm || []).filter((arg) => typeof arg === 'string')
-  };
-}
-
-function parseMavenVersions(xml) {
-  return Array.from(String(xml || '').matchAll(/<version>([^<]+)<\/version>/g))
-    .map((match) => match[1].trim())
-    .filter(Boolean);
-}
-
-function selectLastMatchingVersion(versions, predicate) {
-  const matches = versions.filter(predicate);
-  if (!matches.length) return '';
-
-  const releases = matches.filter((version) => !/alpha|beta|snapshot/i.test(version));
-  const list = releases.length ? releases : matches;
-  return list[list.length - 1] || '';
-}
-
-function getCurrentRuleOsName() {
-  if (process.platform === 'win32') return 'windows';
-  if (process.platform === 'darwin') return 'osx';
-  return 'linux';
-}
-
-function ruleOsMatches(osRule = {}) {
-  const expectedName = String(osRule.name || '').trim();
-  if (expectedName && expectedName !== getCurrentRuleOsName()) return false;
-
-  const expectedArch = String(osRule.arch || '').trim();
-  if (expectedArch && expectedArch !== process.arch) return false;
-
-  const expectedVersion = String(osRule.version || '').trim();
-  if (expectedVersion) {
-    try {
-      if (!new RegExp(expectedVersion).test(os.release())) return false;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function ruleMatches(rule = {}) {
-  if (rule.os && !ruleOsMatches(rule.os)) return false;
-  if (rule.features && Object.keys(rule.features).length) return false;
-  return true;
-}
-
-function rulesAllow(rules) {
-  if (!Array.isArray(rules) || rules.length === 0) return true;
-
-  let allowed = false;
-  for (const rule of rules) {
-    if (!ruleMatches(rule)) continue;
-    allowed = rule.action === 'allow';
-    if (rule.action === 'disallow') allowed = false;
-  }
-  return allowed;
-}
-
-function replaceLoaderPlaceholders(value, root, versionName) {
-  const separator = process.platform === 'win32' ? ';' : ':';
-  return String(value)
-    .replace(/\$\{library_directory\}/g, path.join(root, 'libraries').replace(/\\/g, '/'))
-    .replace(/\$\{classpath_separator\}/g, separator)
-    .replace(/\$\{version_name\}/g, versionName);
-}
-
-function resolveLoaderArguments(args, root, versionName) {
-  const result = [];
-  for (const entry of Array.isArray(args) ? args : []) {
-    if (typeof entry === 'string') {
-      result.push(replaceLoaderPlaceholders(entry, root, versionName));
-      continue;
-    }
-    if (!entry || typeof entry !== 'object' || !rulesAllow(entry.rules)) continue;
-    const value = entry.value;
-    const values = Array.isArray(value) ? value : [value];
-    for (const item of values) {
-      if (typeof item === 'string') {
-        result.push(replaceLoaderPlaceholders(item, root, versionName));
-      }
-    }
-  }
-  return result;
-}
-
-function getVanillaGameArguments(versionFile) {
-  if (typeof versionFile?.minecraftArguments === 'string') {
-    return versionFile.minecraftArguments.split(/\s+/).filter(Boolean);
-  }
-  return Array.isArray(versionFile?.arguments?.game) ? versionFile.arguments.game : [];
-}
-
-function mavenNameToParts(name) {
-  const [group, artifact, version, classifierWithExt] = String(name || '').split(':');
-  if (!group || !artifact || !version) {
-    throw new Error(`Invalid Maven library name: ${name}`);
-  }
-
-  let classifier = classifierWithExt || '';
-  let extension = 'jar';
-  if (classifier.includes('@')) {
-    const parts = classifier.split('@');
-    classifier = parts[0];
-    extension = parts[1] || extension;
-  } else if (version.includes('@')) {
-    const parts = version.split('@');
-    return {
-      group,
-      artifact,
-      version: parts[0],
-      classifier: '',
-      extension: parts[1] || extension
-    };
-  }
-
-  return { group, artifact, version, classifier, extension };
-}
-
-function mavenPathFromName(name, includeClassifier = true) {
-  const { group, artifact, version, classifier, extension } = mavenNameToParts(name);
-  const classifierSuffix = includeClassifier && classifier ? `-${classifier}` : '';
-  return `${group.replace(/\./g, '/')}/${artifact}/${version}/${artifact}-${version}${classifierSuffix}.${extension}`;
-}
-
-function getMclcLibraryPath(root, name) {
-  return path.join(root, 'libraries', mavenPathFromName(name, false));
-}
-
-function shouldIncludeLoaderLibrary(library = {}) {
-  return rulesAllow(library.rules);
-}
-
-function getLibraryDownloadInfo(library = {}) {
-  if (library.downloads?.artifact?.url && library.downloads?.artifact?.path) {
-    return {
-      url: String(library.downloads.artifact.url),
-      path: String(library.downloads.artifact.path).replace(/\//g, path.sep),
-      sha1: String(library.downloads.artifact.sha1 || '')
-    };
-  }
-
-  if (library.url && library.name) {
-    const base = String(library.url).replace(/\/?$/, '/');
-    const mavenPath = mavenPathFromName(library.name, true);
-    return {
-      url: `${base}${mavenPath}`,
-      path: mavenPath.replace(/\//g, path.sep),
-      sha1: ''
-    };
-  }
-
-  if (library.name) {
-    const mavenPath = mavenPathFromName(library.name, true);
-    return {
-      url: `https://libraries.minecraft.net/${mavenPath}`,
-      path: mavenPath.replace(/\//g, path.sep),
-      sha1: ''
-    };
-  }
-
-  return null;
-}
-
-async function downloadLoaderLibrary(root, library) {
-  if (!shouldIncludeLoaderLibrary(library)) return null;
-
-  const download = getLibraryDownloadInfo(library);
-  if (!download?.url || !download.path) return null;
-
-  const targetPath = path.join(root, 'libraries', download.path);
-  const hasValidFile = fs.existsSync(targetPath)
-    && (!download.sha1 || hashFile(targetPath, 'sha1').toLowerCase() === download.sha1.toLowerCase());
-
-  if (!hasValidFile) {
-    await downloadFile(download.url, targetPath);
-    if (download.sha1 && hashFile(targetPath, 'sha1').toLowerCase() !== download.sha1.toLowerCase()) {
-      fs.rmSync(targetPath, { force: true });
-      throw new Error(`Hash mismatch for loader library ${path.basename(targetPath)}`);
-    }
-  }
-
-  if (library.name) {
-    const mclcPath = getMclcLibraryPath(root, library.name);
-    if (path.normalize(mclcPath) !== path.normalize(targetPath)) {
-      ensureDir(path.dirname(mclcPath));
-      fs.copyFileSync(targetPath, mclcPath);
-    }
-  }
-
-  return targetPath;
-}
-
-async function downloadLoaderLibraries(root, profile) {
-  const libraries = Array.isArray(profile?.libraries) ? profile.libraries : [];
-  const includedLibraries = libraries.filter(shouldIncludeLoaderLibrary);
-  for (const library of includedLibraries) {
-    await downloadLoaderLibrary(root, library);
-  }
-  return includedLibraries;
-}
-
-async function prepareCustomLoaderProfile(root, minecraftVersion, profile, loaderVersion) {
-  const profileId = String(profile?.id || '').trim();
-  if (!profileId) {
-    throw new Error('Loader profile has no version id.');
-  }
-
-  const vanilla = await ensureVanillaVersion(root, minecraftVersion);
-  const versionDir = path.join(root, 'versions', profileId);
-  ensureDir(versionDir);
-
-  const ownGameArgs = resolveLoaderArguments(profile.arguments?.game || [], root, profileId);
-  const vanillaGameArgs = resolveLoaderArguments(getVanillaGameArguments(vanilla.versionFile), root, profileId);
-  const preparedProfile = {
-    ...profile,
-    libraries: await downloadLoaderLibraries(root, profile),
-    arguments: {
-      ...(profile.arguments || {}),
-      game: ownGameArgs.length ? [...ownGameArgs, ...vanillaGameArgs] : [],
-      jvm: []
-    }
-  };
-
-  fs.writeFileSync(path.join(versionDir, `${profileId}.json`), JSON.stringify(preparedProfile, null, 2), 'utf8');
-  fs.copyFileSync(vanilla.jarPath, path.join(versionDir, `${profileId}.jar`));
-
-  return {
-    id: profileId,
-    loaderVersion,
-    jvmArgs: resolveLoaderArguments(profile.arguments?.jvm || [], root, profileId)
-  };
-}
-
-async function resolveForgeVersion(minecraftVersion, requestedVersion = 'latest') {
-  const requested = String(requestedVersion || 'latest').trim();
-  if (requested && requested !== 'latest') {
-    return requested.startsWith(`${minecraftVersion}-`) ? requested : `${minecraftVersion}-${requested}`;
-  }
-
-  const xml = await getText(`${FORGE_MAVEN_URL}/net/minecraftforge/forge/maven-metadata.xml`, 15000);
-  const version = selectLastMatchingVersion(parseMavenVersions(xml), (item) => item.startsWith(`${minecraftVersion}-`));
-  if (!version) {
-    throw new Error(`Forge was not found for Minecraft ${minecraftVersion}.`);
-  }
-  return version;
-}
-
-async function ensureForgeVersion(root, minecraftVersion, requestedVersion = 'latest') {
-  const artifactVersion = await resolveForgeVersion(minecraftVersion, requestedVersion);
-  const installerName = `forge-${artifactVersion}-installer.jar`;
-  const installerUrl = `${FORGE_MAVEN_URL}/net/minecraftforge/forge/${artifactVersion}/${installerName}`;
-  const installerPath = path.join(root, 'loaders', 'forge', artifactVersion, installerName);
-
-  if (!fs.existsSync(installerPath) || fs.statSync(installerPath).size === 0) {
-    await downloadFile(installerUrl, installerPath);
-  }
-
-  const zip = new AdmZip(installerPath);
-  const versionEntry = zip.getEntry('version.json');
-  if (!versionEntry) {
-    throw new Error(`Forge installer ${artifactVersion} has no version.json.`);
-  }
-
-  const profile = JSON.parse(versionEntry.getData().toString('utf8'));
-  return prepareCustomLoaderProfile(root, minecraftVersion, profile, artifactVersion);
-}
-
-function getNeoForgeModernPrefix(minecraftVersion) {
-  const parsed = parseMinecraftReleaseId(minecraftVersion);
-  if (!parsed || parsed.major !== 1) return '';
-  return `${parsed.minor}.${parsed.patch || 0}`;
-}
-
-async function resolveNeoForgeArtifact(minecraftVersion, requestedVersion = 'latest') {
-  const legacy = String(minecraftVersion) === '1.20.1';
-  const basePath = legacy ? 'net/neoforged/forge' : 'net/neoforged/neoforge';
-  const filePrefix = legacy ? 'forge' : 'neoforge';
-  const requested = String(requestedVersion || 'latest').trim();
-
-  if (requested && requested !== 'latest') {
-    return {
-      basePath,
-      filePrefix,
-      version: legacy && !requested.startsWith(`${minecraftVersion}-`) ? `${minecraftVersion}-${requested}` : requested
-    };
-  }
-
-  const xml = await getText(`${NEOFORGE_MAVEN_URL}/${basePath}/maven-metadata.xml`, 15000);
-  const versions = parseMavenVersions(xml);
-  const version = legacy
-    ? selectLastMatchingVersion(versions, (item) => item.startsWith(`${minecraftVersion}-`))
-    : selectLastMatchingVersion(versions, (item) => item.startsWith(`${getNeoForgeModernPrefix(minecraftVersion)}.`));
-
-  if (!version) {
-    throw new Error(`NeoForge was not found for Minecraft ${minecraftVersion}.`);
-  }
-
-  return { basePath, filePrefix, version };
-}
-
-async function ensureNeoForgeVersion(root, minecraftVersion, requestedVersion = 'latest') {
-  const artifact = await resolveNeoForgeArtifact(minecraftVersion, requestedVersion);
-  const installerName = `${artifact.filePrefix}-${artifact.version}-installer.jar`;
-  const installerUrl = `${NEOFORGE_MAVEN_URL}/${artifact.basePath}/${artifact.version}/${installerName}`;
-  const installerPath = path.join(root, 'loaders', 'neoforge', artifact.version, installerName);
-
-  if (!fs.existsSync(installerPath) || fs.statSync(installerPath).size === 0) {
-    await downloadFile(installerUrl, installerPath);
-  }
-
-  const zip = new AdmZip(installerPath);
-  const versionEntry = zip.getEntry('version.json');
-  if (!versionEntry) {
-    throw new Error(`NeoForge installer ${artifact.version} has no version.json.`);
-  }
-
-  const profile = JSON.parse(versionEntry.getData().toString('utf8'));
-  return prepareCustomLoaderProfile(root, minecraftVersion, profile, artifact.version);
-}
-
-async function resolveQuiltLoaderVersion(minecraftVersion, requestedVersion = 'latest') {
-  const requested = String(requestedVersion || 'latest').trim();
-  if (requested && requested !== 'latest') return requested;
-
-  const versions = await getJson(`${QUILT_META_URL}/v3/versions/loader/${encodeURIComponent(minecraftVersion)}`);
-  const entries = Array.isArray(versions) ? versions : [];
-  const stable = entries.find((entry) => {
-    const version = String(entry?.loader?.version || entry?.version || '');
-    return version && !/alpha|beta|snapshot/i.test(version);
-  }) || entries[0];
-  const loaderVersion = String(stable?.loader?.version || stable?.version || '').trim();
-  if (!loaderVersion) {
-    throw new Error(`Quilt Loader was not found for Minecraft ${minecraftVersion}.`);
-  }
-  return loaderVersion;
-}
-
-async function ensureQuiltVersion(root, minecraftVersion, requestedVersion = 'latest') {
-  const loaderVersion = await resolveQuiltLoaderVersion(minecraftVersion, requestedVersion);
-  const profile = await getJson(`${QUILT_META_URL}/v3/versions/loader/${encodeURIComponent(minecraftVersion)}/${encodeURIComponent(loaderVersion)}/profile/json`);
-  return prepareCustomLoaderProfile(root, minecraftVersion, profile, loaderVersion);
-}
+let loaderService = null;
 
 async function ensureSelectedLoaderVersion(root, settings) {
-  const minecraftVersion = settings.minecraftVersion || '1.20.1';
-  const modLoader = normalizeModLoader(settings.modLoader || settings.loader);
-
-  if (modLoader === 'vanilla') {
-    await ensureVanillaVersion(root, minecraftVersion);
-    return { id: '', loaderVersion: 'vanilla', jvmArgs: [], name: 'Vanilla' };
+  if (!loaderService) {
+    const { createLoaderService } = require('./lib/loader-service');
+    loaderService = createLoaderService({
+      fs,
+      path,
+      os,
+      AdmZip,
+      launcher,
+      getJson,
+      getText,
+      downloadFile,
+      ensureDir,
+      hashFile,
+      normalizeModLoader,
+      parseMinecraftReleaseId,
+      FABRIC_META_URL,
+      QUILT_META_URL,
+      FORGE_MAVEN_URL,
+      NEOFORGE_MAVEN_URL
+    });
   }
-  if (modLoader === 'fabric') {
-    const result = await ensureFabricVersion(root, minecraftVersion, settings.fabricLoaderVersion || 'latest');
-    return { ...result, name: 'Fabric' };
-  }
-  if (modLoader === 'quilt') {
-    const result = await ensureQuiltVersion(root, minecraftVersion, settings.quiltLoaderVersion || settings.loaderVersion || 'latest');
-    return { ...result, name: 'Quilt' };
-  }
-  if (modLoader === 'forge') {
-    const result = await ensureForgeVersion(root, minecraftVersion, settings.forgeVersion || settings.loaderVersion || 'latest');
-    return { ...result, name: 'Forge' };
-  }
-  if (modLoader === 'neoforge') {
-    const result = await ensureNeoForgeVersion(root, minecraftVersion, settings.neoforgeVersion || settings.loaderVersion || 'latest');
-    return { ...result, name: 'NeoForge' };
-  }
-
-  throw new Error(`Unsupported mod loader: ${modLoader}`);
+  return loaderService.ensureSelectedLoaderVersion(root, settings);
 }
-
 function getOsName() {
   if (process.platform === 'win32') return 'windows';
   if (process.platform === 'darwin') return 'osx';
@@ -4485,49 +3667,6 @@ function createSession(nickname, persist = false, extra = {}) {
   }
 
   return token;
-}
-
-async function remoteAuth(action, payload) {
-  if (!UNIQUE_API_URL) {
-    return null;
-  }
-
-  if (action === 'login') {
-    const check = await requestJson('POST', `${UNIQUE_API_URL}/auth/check`, {
-      timeoutMs: 5000,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nickname: payload.nickname })
-    });
-    if (check?.registered === false) {
-      return { success: false, error: 'Аккаунт с таким ником не зарегистрирован.' };
-    }
-  }
-
-  const remotePayload = { ...payload };
-  if (remotePayload.password) {
-    remotePayload.passwordSha256 = sha256Text(remotePayload.password);
-    delete remotePayload.password;
-  }
-
-  const response = await requestJson('POST', `${UNIQUE_API_URL}/auth/${action}`, {
-    timeoutMs: 10000,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...remotePayload,
-      launcher: LAUNCHER_NAME,
-      launcherBuild: UNIQUE_LAUNCHER_BUILD_ID,
-      hwidHash: getHardwareIdHash()
-    })
-  });
-
-  if (response?.success === false || response?.ok === false) {
-    return {
-      success: false,
-      error: response.error || response.message || 'Server auth rejected this request.'
-    };
-  }
-
-  return response || {};
 }
 
 function formEncode(values = {}) {
@@ -4628,31 +3767,28 @@ async function startMicrosoftDeviceFlow() {
   }, 5 * 60 * 1000);
 
   microsoftAuthServer = http.createServer(async (request, response) => {
+    const reply = (status, code) => sendAuthCallback(response, { provider: 'Microsoft', status, code, language: getSettings().language });
     const requestUrl = new URL(request.url, MICROSOFT_REDIRECT_URI);
     if (requestUrl.pathname !== redirectUrl.pathname) {
-      response.writeHead(404);
-      response.end('Not found');
+      reply('notfound', 404);
       return;
     }
 
     if (requestUrl.searchParams.get('state') !== state) {
-      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('Invalid authorization state. You can close this tab and try again.');
+      reply('invalid', 400);
       return;
     }
 
     const oauthError = requestUrl.searchParams.get('error');
     if (oauthError) {
-      response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end('<html><body>Microsoft sign-in was cancelled or denied. You can close this tab.</body></html>');
+      reply('denied', 400);
       finishMicrosoftAuthFlow(flowId, { error: new Error(requestUrl.searchParams.get('error_description') || oauthError) });
       return;
     }
 
     const code = requestUrl.searchParams.get('code');
     if (!code) {
-      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('Authorization code was not returned.');
+      reply('missing', 400);
       finishMicrosoftAuthFlow(flowId, { error: new Error('Microsoft did not return an authorization code.') });
       return;
     }
@@ -4666,15 +3802,14 @@ async function startMicrosoftDeviceFlow() {
           client_id: MICROSOFT_CLIENT_ID,
           code,
           redirect_uri: MICROSOFT_REDIRECT_URI,
+          scope: MICROSOFT_OAUTH_SCOPE,
           code_verifier: pkce.verifier
         })
       });
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end('<html><body>Sign-in complete. You can close this tab and return to the launcher.</body></html>');
+      reply('success', 200);
       finishMicrosoftAuthFlow(flowId, { token });
     } catch (err) {
-      response.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end('<html><body>Sign-in failed. You can close this tab and return to the launcher.</body></html>');
+      reply('failed', 500);
       finishMicrosoftAuthFlow(flowId, { error: err });
     }
   });
@@ -4688,13 +3823,15 @@ async function startMicrosoftDeviceFlow() {
     // Do not pin this to one localhost address: browsers may choose either IPv4 or IPv6.
     microsoftAuthServer.listen(Number(redirectUrl.port || 53682));
   });
-  shell.openExternal(authUrl.toString()).catch(() => {});
+  const browserOpened = process.env.UNIQUE_BACKEND_TRANSPORT !== 'stdio';
+  if (browserOpened) await shell.openExternal(authUrl.toString());
 
   return {
     flowId,
+    browserOpened,
     authorizationUrl: authUrl.toString(),
     redirectUri: MICROSOFT_REDIRECT_URI,
-    message: 'Browser opened. Finish Microsoft sign-in there; the launcher will continue automatically.'
+    message: browserOpened ? 'Browser opened. Finish Microsoft sign-in there; the launcher will continue automatically.' : 'Open authorizationUrl in the default browser to continue Microsoft sign-in.'
   };
 }
 
@@ -4843,6 +3980,7 @@ async function completeMicrosoftLogin(flowId) {
     createdAt: Date.now(),
     ...sessionExtra
   });
+  saveAccountSession(store.get(SESSION_KEY));
   setLauncherDiscordRpc(nickname);
   return {
     success: true,
@@ -4920,17 +4058,26 @@ function syncRemoteProfile(nickname, data = {}) {
   }).catch(() => {});
 }
 
+function saveAccountSession(session) {
+  if (!session?.nickname || !session?.sessionToken) return;
+  const accounts = Array.isArray(store.get(ACCOUNTS_KEY, [])) ? store.get(ACCOUNTS_KEY, []) : [];
+  store.set(ACCOUNTS_KEY, [{ ...session, savedAt: Date.now() }, ...accounts.filter((item) => item.nickname !== session.nickname)].slice(0, 8));
+}
+function listSavedAccounts() { return (Array.isArray(store.get(ACCOUNTS_KEY, [])) ? store.get(ACCOUNTS_KEY, []) : []).filter((item) => item?.nickname && item?.sessionToken); }
 function getStoredSession() {
   const session = store.get(SESSION_KEY, null);
   if (!session?.nickname || !session?.sessionToken) {
     return null;
   }
-
-  const user = getUsers()[session.nickname];
-  if (!user && !session.remote && !session.microsoft) {
-    store.delete(SESSION_KEY);
-    return null;
+  // Older builds did not persist the `microsoft` flag.  Preserve a valid
+  // Microsoft session instead of silently signing the player out.
+  if (!session.guest && !session.microsoft && (session.refreshToken || session.minecraftAuth || session.profileId)) {
+    session.microsoft = true;
+    session.license = true;
+    store.set(SESSION_KEY, session);
   }
+  if (!session.guest && !session.microsoft) return null;
+  saveAccountSession(session);
 
   if (!activeSessions.has(session.sessionToken)) {
     activeSessions.set(session.sessionToken, {
@@ -4954,127 +4101,18 @@ function getStoredSession() {
   };
 }
 
-ipcMain.handle('auth-register', async (event, payload) => {
-  const nickname = String(payload.nickname || '').trim();
-  const password = String(payload.password || '');
-  const enableTOTP = Boolean(payload.enableTOTP);
-
-  if (!validateNickname(nickname)) {
-    return { success: false, error: 'Ник должен быть 3-16 символов: латиница, цифры или _.' };
+// Capture the instance once per request; async downloads must not follow later UI selection changes.
+const registerHandler = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, handler) => registerHandler(channel, (event, payload) => {
+  // Both native bridges send null for calls without arguments; default parameters only handle undefined.
+  payload ??= {};
+  const owner = payload?.nickname || payload?.user?.nickname || getStoredSession()?.nickname || '';
+  const instanceId = payload?.instanceId || getSettings(owner).activeInstanceId || '';
+  if (instanceId && !store.get('legacyGameInstance', '') && !store.get('instanceIsolationInitialized', false)) {
+    instancePaths.root(owner, instanceId, fs.existsSync(path.join(gameStorage.root, 'mods')) || fs.existsSync(path.join(gameStorage.root, 'saves')) || fs.existsSync(path.join(app.getPath('userData'), 'user-mods')));
+    store.set('instanceIsolationInitialized', true);
   }
-
-  if (password.length < 6) {
-    return { success: false, error: 'Пароль должен быть минимум 6 символов.' };
-  }
-
-  try {
-    const remote = await remoteAuth('register', { nickname, password, enableTOTP });
-    if (remote) {
-      return {
-        success: remote.success !== false && remote.ok !== false,
-        error: remote.error || remote.message,
-        enabledTOTP: Boolean(remote.enabledTOTP || remote.totpEnabled),
-        totpUrl: remote.totpUrl || remote.otpauthUrl || null
-      };
-    }
-  } catch (err) {
-    return { success: false, error: err.message || String(err) };
-  }
-
-  const users = getUsers();
-  if (users[nickname]) {
-    return { success: false, error: 'Такой ник уже зарегистрирован.' };
-  }
-
-  const user = {
-    nickname,
-    passwordHash: bcrypt.hashSync(password, 10),
-    totp: null,
-    createdAt: new Date().toISOString()
-  };
-
-  if (enableTOTP) {
-    const secret = speakeasy.generateSecret({
-      length: 20,
-      name: `Project Launcher (${nickname})`,
-      issuer: 'Project Launcher'
-    });
-
-    user.totp = {
-      secret: secret.base32,
-      otpauthUrl: secret.otpauth_url
-    };
-  }
-
-  users[nickname] = user;
-  saveUsers(users);
-
-  return {
-    success: true,
-    enabledTOTP: Boolean(user.totp),
-    totpUrl: user.totp?.otpauthUrl || null
-  };
-});
-
-ipcMain.handle('auth-login', async (event, payload) => {
-  const nickname = String(payload.nickname || '').trim();
-  const password = String(payload.password || '');
-  const totpCode = String(payload.totpCode || '').trim();
-  try {
-    const remote = await remoteAuth('login', { nickname, password, totpCode });
-    if (remote) {
-      if (remote.success === false || remote.ok === false) {
-        return { success: false, error: remote.error || remote.message || 'Server auth rejected this login.' };
-      }
-
-      const sessionToken = remote.sessionToken || remote.token || createSession(nickname, false);
-      activeSessions.set(sessionToken, {
-        nickname,
-        createdAt: Date.now(),
-        remote: true
-      });
-      store.set(SESSION_KEY, {
-        nickname,
-        sessionToken,
-        createdAt: Date.now(),
-        remote: true
-      });
-      setLauncherDiscordRpc(nickname);
-      return {
-        success: true,
-        user: { nickname, sessionToken }
-      };
-    }
-  } catch (err) {
-    return { success: false, error: err.message || String(err) };
-  }
-
-  const users = getUsers();
-  const user = users[nickname];
-
-  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
-    return { success: false, error: 'Неверный ник или пароль.' };
-  }
-
-  if (user.totp) {
-    const verified = speakeasy.totp.verify({
-      secret: user.totp.secret,
-      encoding: 'base32',
-      token: totpCode,
-      window: 1
-    });
-
-    if (!verified) {
-      return { success: false, error: 'Неверный код Google Authenticator.' };
-    }
-  }
-
-  const sessionToken = createSession(nickname, true);
-  setLauncherDiscordRpc(nickname);
-  return {
-    success: true,
-    user: { nickname, sessionToken }
-  };
+  return instanceContext.run({ owner, instanceId }, () => handler(event, payload));
 });
 
 ipcMain.handle('auth-guest', async (event, payload = {}) => {
@@ -5091,40 +4129,51 @@ ipcMain.handle('auth-guest', async (event, payload = {}) => {
     guest: true
   });
 
-  let skin = null;
+  // Persist guest session so it can be restored across launcher restarts
   try {
-    skin = await downloadSkinByNickname(nickname);
+    store.set(SESSION_KEY, {
+      nickname,
+      sessionToken,
+      createdAt: Date.now(),
+      guest: true
+    });
+    saveAccountSession(store.get(SESSION_KEY));
+  } catch (e) {
+    return { success: false, error: 'Не удалось сохранить аккаунт: ' + e.message };
+  }
+
+  try {
     saveSettings({
       ...getSettings(nickname),
-      skin: skin.path,
       useUniqueMods: false
     }, nickname);
-  } catch (err) {
-    saveSettings({
-      ...getSettings(nickname),
-      useUniqueMods: false
-    }, nickname);
+  } catch (error) {
+    return { success: false, error: 'Не удалось сохранить настройки: ' + error.message };
   }
 
   setLauncherDiscordRpc(nickname);
   return {
     success: true,
     user: { nickname, sessionToken, guest: true },
-    skin
+    skin: null
   };
 });
 
+ipcMain.handle('auth-accounts-list', async () => ({ success: true, accounts: listSavedAccounts().map(({ nickname, sessionToken, guest, microsoft }) => ({ nickname, sessionToken, guest, microsoft })) }));
+ipcMain.handle('auth-account-switch', async (event, payload = {}) => {
+  const account = listSavedAccounts().find((item) => item.sessionToken === payload.sessionToken);
+  if (!account) return { success: false, error: 'Account was not found.' };
+  store.set(SESSION_KEY, account);
+  activeSessions.set(account.sessionToken, { ...account, createdAt: account.createdAt || Date.now() });
+  return { success: true, user: getStoredSession() };
+});
 ipcMain.handle('auth-current-session', async () => {
   const session = getStoredSession();
   if (!session) {
     return { success: false };
   }
 
-  if (!(await verifyRemoteSession(session.nickname, session.sessionToken))) {
-    activeSessions.delete(session.sessionToken);
-    store.delete(SESSION_KEY);
-    return { success: false };
-  }
+  // Keep a local session available offline; its Microsoft token is refreshed only when Minecraft starts.
 
   setLauncherDiscordRpc(session.nickname);
 
@@ -5167,6 +4216,23 @@ ipcMain.handle('auth-logout', async (event, payload = {}) => {
   return { success: true };
 });
 
+ipcMain.handle('log-launch', async (event, payload = {}) => {
+  try {
+    const nickname = String(payload.nickname || '').trim() || 'unknown';
+    const instanceId = String(payload.instanceId || '');
+    const loader = String(payload.loader || '');
+    const version = String(payload.version || '');
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    ensureDir(logsDir);
+    const logPath = path.join(logsDir, 'launches.log');
+    const line = `${new Date().toISOString()}\t${nickname}\t${instanceId}\t${loader}\t${version}\n`;
+    fs.appendFileSync(logPath, line, { encoding: 'utf8', flag: 'a' });
+    return { success: true, path: logPath };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('get-settings', async (event, payload = {}) => {
   return getSettings(payload.nickname);
 });
@@ -5174,6 +4240,7 @@ ipcMain.handle('get-settings', async (event, payload = {}) => {
 ipcMain.handle('save-settings', async (event, payload = {}) => {
   const settings = payload.settings || payload;
   const saved = saveSettings(settings, payload.nickname);
+  if (getDiscordService().rpcContext) void updateDiscordRpc();
   syncRemoteLauncherAssets(String(payload.nickname || '').trim(), saved);
   return { success: true, settings: saved };
 });
@@ -5196,6 +4263,7 @@ ipcMain.handle('get-system-info', async () => {
     userModsFolder: getUserModsPath(versions[0] || '1.20.1'),
     server: PROJECT_SERVER,
     supportedVersions: versions,
+    snapshotVersions: supportedSnapshotVersionsCache,
     supportedLoaders: SUPPORTED_MOD_LOADERS,
     apiBaseUrl: UNIQUE_API_URL,
     apiFallbackUrls: UNIQUE_API_FALLBACK_URLS,
@@ -5259,6 +4327,20 @@ ipcMain.handle('build-instances-list', async (event, payload = {}) => {
   }
 });
 
+ipcMain.handle('build-instance-update', async (event, payload = {}) => {
+  try {
+    const instance = findBuildInstance(payload.nickname, payload.instanceId);
+    if (!instance) throw new Error('Сборка не найдена.');
+    const changes = payload.changes || {};
+    instanceLaunchOptions({ ...instance, ...changes });
+    const name = String(changes.name ?? instance.name).trim();
+    if (!name || name.length > 80) throw new Error('Название должно содержать от 1 до 80 символов.');
+    if (changes.icon !== undefined && changes.icon !== '' && (typeof changes.icon !== 'string' || changes.icon.length > 180000 || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(changes.icon))) throw new Error('Некорректная аватарка.');
+    upsertBuildInstance(payload.nickname, { ...instance, name, jvmArguments: changes.jvmArguments ?? instance.jvmArguments, gameArguments: changes.gameArguments ?? instance.gameArguments, icon: changes.icon ?? instance.icon, favorite: changes.favorite === undefined ? instance.favorite : changes.favorite === true }, false);
+    return { success: true, instances: getBuildInstances(payload.nickname) };
+  } catch (error) { return { success: false, error: error.message }; }
+});
+
 ipcMain.handle('build-instance-create', async (event, payload = {}) => {
   try {
     const minecraftVersion = String(payload.minecraftVersion || '1.20.1').trim();
@@ -5277,6 +4359,23 @@ ipcMain.handle('build-instance-create', async (event, payload = {}) => {
     };
   } catch (err) {
     return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('build-instance-delete', async (event, payload = {}) => {
+  try {
+    const nickname = String(payload.nickname || '').trim();
+    const instanceId = String(payload.instanceId || '').trim();
+    if (!instanceId) return { success: false, error: 'instanceId required' };
+    const instances = getBuildInstances(nickname).filter((i) => i.id !== instanceId);
+    saveBuildInstances(nickname, instances);
+    const settings = getSettings(nickname);
+    if (settings.activeInstanceId === instanceId) {
+      saveSettings({ ...settings, activeInstanceId: '' }, nickname);
+    }
+    return { success: true, instances, settings: getSettings(nickname) };
+  } catch (err) {
+    return { success: false, error: err && (err.message || String(err)) };
   }
 });
 
@@ -5473,6 +4572,7 @@ ipcMain.handle('modrinth-install-project', async (event, payload = {}) => {
 
 ipcMain.handle('modrinth-install-modpack', async (event, payload = {}) => {
   try {
+    if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
     const settings = applySelectedInstanceToSettings(payload.nickname, getSettings(payload.nickname));
     const result = await installModrinthModpackProject({
       projectId: payload.projectId,
@@ -5492,6 +4592,7 @@ ipcMain.handle('modrinth-install-modpack', async (event, payload = {}) => {
       quiltLoaderVersion: result.quiltLoaderVersion || 'latest',
       source: 'modrinth',
       modrinthProjectId: payload.projectId,
+      iconSource: (await getModrinthProject(payload.projectId || payload.slug).catch(() => null))?.iconUrl || '',
       modrinthSlug: payload.slug,
       packName: result.packName
     }, true);
@@ -5510,6 +4611,7 @@ ipcMain.handle('modrinth-install-modpack', async (event, payload = {}) => {
 
 ipcMain.handle('modrinth-import-mrpack', async (event, payload = {}) => {
   try {
+    if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
     const result = await importLocalMrpack(payload);
     const instance = upsertBuildInstance(payload.nickname, {
       name: payload.name || result.packName,
@@ -5538,6 +4640,7 @@ ipcMain.handle('modrinth-import-mrpack', async (event, payload = {}) => {
 
 ipcMain.handle('modrinth-import-project', async (event, payload = {}) => {
   try {
+    if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
     const settings = applySelectedInstanceToSettings(payload.nickname, getSettings(payload.nickname));
     const result = await importModrinthProject({
       ...payload,
@@ -5557,6 +4660,7 @@ ipcMain.handle('modrinth-import-project', async (event, payload = {}) => {
         quiltLoaderVersion: result.quiltLoaderVersion || 'latest',
         source: 'modrinth',
         modrinthProjectId: result.project?.id || payload.projectId,
+        iconSource: result.project?.iconUrl || '',
         modrinthSlug: result.project?.slug || payload.slug,
         packName: result.packName || result.project?.title
       }, true);
@@ -5873,6 +4977,84 @@ ipcMain.handle('registered-servers', async (event, payload = {}) => {
   }
 });
 
+function getContentFolder(type) {
+  return instancePaths.content(getGameRoot(), type);
+}
+
+function listGameContent(type) {
+  const folder = getContentFolder(type);
+  return fs.readdirSync(folder, { withFileTypes: true })
+    .filter((entry) => String(type) === 'worlds' ? entry.isDirectory() || entry.name.endsWith('.disabled') : entry.isFile())
+    .map((entry) => {
+      const disabled = entry.name.endsWith('.disabled');
+      const stat = fs.statSync(path.join(folder, entry.name));
+      return { name: entry.name, baseName: disabled ? entry.name.slice(0, -'.disabled'.length) : entry.name, enabled: !disabled, sizeMb: Number((stat.size / 1024 / 1024).toFixed(2)) };
+    });
+}
+
+function setGameContentEnabled(type, fileName, enabled) {
+  if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
+  const folder = getContentFolder(type);
+  const source = instancePaths.item(folder, fileName);
+  if (!fs.existsSync(source)) throw new Error('Content file was not found.');
+  const target = enabled ? source.replace(/\.disabled$/i, '') : source.endsWith('.disabled') ? source : `${source}.disabled`;
+  if (target !== source && fs.existsSync(target)) throw new Error('Файл уже существует, он не был перезаписан.');
+  if (target !== source) fs.renameSync(source, target);
+  return { name: path.basename(target), enabled };
+}
+
+function deleteGameContent(type, fileName) {
+  if (activeLaunches.size) throw new Error('Сначала закройте Minecraft.');
+  const folder = getContentFolder(type);
+  const target = instancePaths.item(folder, fileName);
+  if (!fs.existsSync(target)) throw new Error('Content file was not found.');
+  fs.rmSync(target, { recursive: true, force: true });
+  return true;
+}
+const contentImporter = new ContentImporter({
+  busy: () => activeLaunches.size > 0,
+  folder: (type, settings) => type === 'mods' ? getUserModsPath(settings.minecraftVersion)
+    : type === 'cape' ? path.join(app.getPath('userData'), 'capes') : getContentFolder(type)
+});
+ipcMain.handle('content-import-drop', async (event, payload = {}) => {
+  try {
+    const session = getStoredSession();
+    if (!session || session.sessionToken !== payload.sessionToken) throw new Error('Аккаунт изменился. Повторите импорт.');
+    const settings = applySelectedInstanceToSettings(session.nickname, getSettings(session.nickname));
+    if (payload.type !== 'cape' && (!settings.activeInstanceId || payload.instanceId !== settings.activeInstanceId)) throw new Error('Сначала выберите сборку.');
+    if (!Array.isArray(payload.paths) || !payload.paths.length || payload.paths.length > 100) throw new Error('Выберите от 1 до 100 файлов.');
+    const imported = [], errors = [];
+    for (const file of payload.paths) {
+      try { imported.push(await contentImporter.importOne(payload.type, String(file), settings)); }
+      catch (error) { errors.push({ name: path.basename(String(file)), error: error.code === 'EEXIST' ? 'Файл уже существует, он не был перезаписан.' : error.message }); }
+    }
+    return { success: true, imported, errors };
+  } catch (error) { return { success: false, error: error.message }; }
+});
+ipcMain.handle('game-content-list', async (event, payload = {}) => {
+  try { return { success: true, items: listGameContent(payload.type) }; }
+  catch (err) { return { success: false, error: err.message || String(err), items: [] }; }
+});
+ipcMain.handle('game-content-set-enabled', async (event, payload = {}) => {
+  try { return { success: true, item: setGameContentEnabled(payload.type, payload.name, Boolean(payload.enabled)) }; }
+  catch (err) { return { success: false, error: err.message || String(err) }; }
+});
+ipcMain.handle('game-content-delete', async (event, payload = {}) => {
+  try { deleteGameContent(payload.type, payload.name); return { success: true }; }
+  catch (err) { return { success: false, error: err.message || String(err) }; }
+});
+ipcMain.handle('open-game-content-folder', async (event, payload = {}) => {
+  try {
+    const aliases = { resourcepacks: 'resourcepack', shaders: 'shader' };
+    const type = String(payload.type || '').toLowerCase();
+    const folder = type === 'instance' ? getGameRoot() : getContentFolder(aliases[type] || type);
+    ensureDir(folder);
+    const error = await shell.openPath(folder);
+    return error ? { success: false, error } : { success: true, path: folder };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
 ipcMain.handle('open-user-mods-folder', async (event, payload = {}) => {
   const minecraftVersion = String(payload.minecraftVersion || getSettings(payload.nickname).minecraftVersion || '1.20.1');
   const folder = getUserModsPath(minecraftVersion);
@@ -5897,21 +5079,9 @@ ipcMain.handle('java-rescan', async () => ({
   })()
 }));
 
-ipcMain.handle('updates-check', async () => {
-  try {
-    return await checkForUpdates();
-  } catch (err) {
-    return { success: false, error: err.message || String(err) };
-  }
-});
+ipcMain.handle('updates-check', async () => ({ success: false, disabled: true, error: 'Автоматические обновления отключены.' }));
 
-ipcMain.handle('updates-install', async () => {
-  if (!autoUpdater) {
-    return { success: false, error: 'electron-updater is not available.' };
-  }
-  autoUpdater.quitAndInstall(true, true);
-  return { success: true };
-});
+ipcMain.handle('updates-install', async () => ({ success: false, disabled: true, error: 'Автоматические обновления отключены.' }));
 
 ipcMain.handle('diagnostics-get', async () => {
   try {
@@ -5952,7 +5122,7 @@ ipcMain.handle('repair-game', async (event, payload = {}) => {
 });
 
 ipcMain.handle('open-logs-folder', async () => {
-  const logsDir = path.join(getGameRoot(), 'logs');
+  const logsDir = path.join(app.getPath('userData'), 'logs');
   ensureDir(logsDir);
   await shell.openPath(logsDir);
   return { success: true, folder: logsDir };
@@ -5986,12 +5156,38 @@ ipcMain.handle('choose-directory', async () => {
   };
 });
 
+ipcMain.handle('game-storage-info', () => gameStorage.info());
+ipcMain.handle('game-storage-change', (event, payload = {}) => {
+  try {
+    if (activeLaunches.size) throw new Error('Close Minecraft before changing the game folder.');
+    if (!payload.path && !payload.useDefault) throw new Error('Choose a folder.');
+    return { success: true, ...gameStorage.schedule(payload.useDefault ? gameStorage.defaultRoot : String(payload.path)) };
+  } catch (error) { return { success: false, error: error.message }; }
+});
+
 ipcMain.handle('get-asset-preview', async (event, filePath) => {
   try {
     return { success: true, preview: readAssetPreview(filePath) };
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+const skinService = new SkinService({
+  root: path.join(app.getPath('userData'), 'skin-album'), store,
+  getSession: token => {
+    const stored = getStoredSession();
+    if (stored?.sessionToken !== token) throw new Error('Аккаунт изменился. Повторите действие для текущего аккаунта.');
+    return activeSessions.get(token);
+  }, getAuth: getSessionMinecraftAuth, saveSettings, getSettings
+});
+ipcMain.handle('skin-album', async (event, payload = {}) => {
+  try { return { success: true, items: skinService.list(payload.sessionToken) }; }
+  catch (error) { return { success: false, error: error.message }; }
+});
+ipcMain.handle('skin-apply', async (event, payload = {}) => {
+  try { return { success: true, ...await skinService.apply(payload) }; }
+  catch (error) { return { success: false, error: error.message }; }
 });
 
 ipcMain.handle('skin-download-by-nickname', async (event, payload = {}) => {
@@ -6059,8 +5255,9 @@ ipcMain.handle('profile-save-links', async (event, payload = {}) => {
     }
 
     const profile = saveUserProfileLinks(nickname, payload);
-    if (rpcContext) {
-      updateDiscordRpc({ ...rpcContext, nickname: rpcContext.nickname || nickname });
+    if (getDiscordService().rpcContext) {
+      const context = getDiscordService().rpcContext;
+      updateDiscordRpc({ ...context, nickname: context.nickname || nickname });
     }
 
     return {
@@ -6078,8 +5275,15 @@ ipcMain.handle('spotify-connect', async (event, payload = {}) => {
     return { success: false, error: 'Профиль не найден.' };
   }
 
-  return connectSpotify(nickname);
+  try {
+    return await connectSpotify(nickname);
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
 });
+
+ipcMain.handle('spotify-connect-complete', (event, payload = {}) => completeSpotifyAuth(String(payload.nickname || '').trim(), payload.flowId));
+ipcMain.handle('spotify-connect-cancel', (event, payload = {}) => cancelSpotifyAuth(String(payload.nickname || '').trim(), payload.flowId));
 
 ipcMain.handle('spotify-disconnect', async (event, payload = {}) => {
   const nickname = String(payload.nickname || '').trim();
@@ -6087,6 +5291,7 @@ ipcMain.handle('spotify-disconnect', async (event, payload = {}) => {
     return { success: false, error: 'Профиль не найден.' };
   }
 
+  cancelSpotifyAuth(nickname);
   return { success: true, profile: clearSpotifyProfile(nickname) };
 });
 
@@ -6110,13 +5315,71 @@ ipcMain.handle('spotify-now-playing', async (event, payload = {}) => {
   }
 });
 
+ipcMain.handle('launch-horizon', async (event, payload = {}) => {
+  if (activeLaunches.size) return { success: false, error: 'Сначала закройте запущенную игру.' };
+  const session = activeSessions.get(payload.user?.sessionToken);
+  if (!session?.microsoft || session.guest) return { success: false, error: 'Для Horizon нужен Microsoft-аккаунт с Minecraft Java Edition.' };
+  const key = payload.user.sessionToken;
+  const settings = getSettings(session.nickname);
+  if (!settings.experiments?.rustMinecraft) return { success: false, error: 'Включите RUST-версию Minecraft в экспериментальных настройках.' };
+  const instance = findBuildInstance(session.nickname, payload.instanceId || settings.activeInstanceId);
+  if (!instance) return { success: false, error: 'Сначала выберите сборку для Rust-запуска.' };
+  const source = instancePaths.root(session.nickname, instance.id);
+  const root = path.join(gameStorage.root, 'horizon', crypto.createHash('sha256').update(session.nickname).digest('hex').slice(0, 24), instance.id);
+  const logs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), secrets: [key], emit: (channel, data) => event.sender.send(channel, data) });
+  const state = new LaunchSession({
+    record: entry => logs.lifecycle(entry),
+    window: BrowserWindow.fromWebContents(event.sender),
+    hideLauncherDuringGame: Boolean(settings.hideLauncherDuringGame),
+    onFinish: code => {
+      activeLaunches.delete(key);
+      event.sender.send('launch-closed', code);
+      if (state.process && code !== 0 && !state.stopRequested) event.sender.send('game-crashed', { code: code ?? 'UNKNOWN' });
+      void logs.collect(code, state.stopRequested).catch(() => {});
+    }
+  });
+  activeLaunches.set(key, state);
+  try {
+    const auth = await getSessionMinecraftAuth(key, session.nickname);
+    if (auth?.access_token) logs.secrets.push(auth.access_token);
+    state.checkpoint();
+    state.setStage('horizon-api');
+    const plan = await prepareHorizonLaunch({ executable: settings.horizonExecutable, resources: settings.horizonResources, root, auth });
+    state.setStage('horizon-resources');
+    plan.args[1] = await ensureHorizonResources({
+      resources: settings.horizonResources,
+      cacheRoot: path.join(gameStorage.root, 'horizon', 'resources'),
+      checkpoint: () => state.checkpoint(),
+      onProgress: progress => event.sender.send('launch-progress', progress)
+    });
+    state.checkpoint();
+    state.setStage('horizon-instance-sync');
+    const content = syncHorizonInstance(source, root);
+    if (content.skippedJavaMods) event.sender.send('launch-log', 'Horizon: Java-моды не запускаются: ' + content.skippedJavaMods + '. Перенесено совместимое содержимое выбранной сборки.');
+    state.checkpoint();
+    const process = startHorizon(plan);
+    state.attach(process);
+    for (const stream of ['stdout', 'stderr']) process[stream].on('data', chunk => event.sender.send('launch-log', logs.write(stream, chunk.toString())));
+    process.stdin.on('error', error => event.sender.send('launch-log', logs.write('stdin', error.message)));
+    await new Promise((resolve, reject) => { process.once('spawn', resolve); process.once('error', reject); });
+    process.stdin.end(JSON.stringify(plan.session));
+    event.sender.send('launch-started', { engine: 'horizon' });
+    if (settings.hideLauncherDuringGame) state.window?.hide();
+    return { success: true, content, instanceId: instance.id };
+  } catch (error) {
+    state.finish(error.code === 'LAUNCH_CANCELLED' ? 0 : 1, null, error);
+    return { success: false, error: logs.redact(error.message), code: error.code };
+  }
+});
+
 ipcMain.handle('launch-minecraft', async (event, payload) => {
   const launchKey = payload.user?.sessionToken;
-  if (launchKey && activeLaunches.has(launchKey)) {
+  if (activeLaunches.size) {
     return { success: false, error: 'Minecraft is already launching or running.' };
   }
 
-  const maxFps = getRefreshRateForSender(event.sender);
+  const detectedHz = Number(payload._displayRefreshRate);
+  const maxFps = detectedHz > 1 && detectedHz <= 1000 ? Math.round(detectedHz) : getRefreshRateForSender(event.sender);
   const nickname = String(payload.user?.nickname || '').trim();
   const savedSettings = saveSettings({
     ...getSettings(nickname),
@@ -6144,7 +5407,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     };
   }
 
-  const requestedUniqueServices = !isGuest && settings.useUniqueMods !== false;
+  const requestedUniqueServices = false; // Removed UNIQUE API must not participate in local launches.
   const uniqueServicesAllowed = requestedUniqueServices && settings.modLoader === 'fabric';
   if (requestedUniqueServices && settings.modLoader !== 'fabric' && settings.projectId === 'unique') {
     settings.projectId = 'offline';
@@ -6157,24 +5420,40 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     settings.projectId = 'offline';
   }
 
-  if (uniqueServicesAllowed && !(await verifyRemoteSession(user.nickname, user.sessionToken))) {
-    activeSessions.delete(user.sessionToken);
-    store.delete(SESSION_KEY);
-    return { success: false, error: 'Server rejected launcher session or HWID.' };
-  }
+  // Local launcher sessions are never invalidated by a removed external service.
 
-  const launchState = {
-    cancelled: false,
-    process: null,
+  const gameLogs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), secrets: [user.sessionToken], emit: (channel, data) => event.sender.send(channel, data) });
+  const launchState = new LaunchSession({
+    record: entry => gameLogs.lifecycle(entry),
     window: launchWindow,
-    hideLauncherDuringGame: Boolean(settings.hideLauncherDuringGame)
-  };
+    hideLauncherDuringGame: Boolean(settings.hideLauncherDuringGame),
+    onFinish: code => {
+      activeLaunches.delete(user.sessionToken);
+      stopPlayingDiscordRpc();
+      event.sender.send('launch-closed', code);
+      if (launchState.process && code !== 0 && !launchState.stopRequested && !launchState.cancelled) event.sender.send('game-crashed', { code: code ?? 'UNKNOWN' });
+      gameLogs.collect(code, launchState.stopRequested).catch(error => event.sender.send('launch-log', `Log collection: ${error.message}`));
+    }
+  });
   activeLaunches.set(user.sessionToken, launchState);
+
+  let _launchDebugPath = null;
+  try {
+    const launchLogsDir = path.join(app.getPath('userData'), 'logs');
+    ensureDir(launchLogsDir);
+    _launchDebugPath = path.join(launchLogsDir, 'launch-debug.log');
+    fs.appendFileSync(_launchDebugPath, `${new Date().toISOString()}\tLAUNCH-START\t${String(settings.minecraftVersion||'')}\t${String(settings.modLoader||'')}\n`, { encoding: 'utf8' });
+  } catch (e) {
+    try { console.error('Failed to write launch start log:', e && (e.stack || e.message || e)); } catch (__) {}
+  }
 
   try {
     ensureDir(root);
+    launchState.setStage('version-and-instance');
     const repairedAssets = removeEmptyAssetObjects(root);
+    const customLaunch = instanceLaunchOptions(selectedInstance);
     const versionProfile = await getVersionProfile(settings.minecraftVersion || '1.20.1');
+    launchState.checkpoint();
     if (versionProfile.id && versionProfile.id !== settings.minecraftVersion) {
       settings.minecraftVersion = versionProfile.id;
     }
@@ -6188,6 +5467,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     const effectiveVersionProfile = uniqueServicesAllowed
       ? versionProfile
       : { ...versionProfile, useBundledMods: false, mods: [] };
+    launchState.setStage('mods');
     event.sender.send('launch-progress', {
       stage: 'mods',
       name: uniqueServicesAllowed ? 'Checking project mods' : 'Removing UNIQUE mods'
@@ -6203,22 +5483,42 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     const userMods = syncUserModsToGameRoot(root, settings.minecraftVersion || '1.20.1');
     await enforceModIntegrity(root, effectiveVersionProfile, settings.buildProfile || 'normal');
     const syncedMods = [...requiredMods, ...userMods];
+    launchState.setStage('resource-packs');
     event.sender.send('launch-progress', { stage: 'assets', name: 'Building resource packs' });
-    const wallpaperPack = buildWallpaperResourcePack(root, settings.wallpaper, settings.minecraftVersion || '1.20.1');
+    const wallpaperPack = null;
     const playerAssetsPack = buildPlayerAssets(root, settings);
-    writeOptionsResourcePacks(root, [wallpaperPack, playerAssetsPack]);
+    // Wallpaper belongs to the launcher only. Preserve all user resource packs.
+    const optionsPath = path.join(root, 'options.txt');
+    if (fs.existsSync(optionsPath)) {
+      const original = fs.readFileSync(optionsPath, 'utf8');
+      const updated = original.replace(/^(resourcePacks|incompatibleResourcePacks):(.*)$/gm, (line, key, value) => {
+        try {
+          const packs = JSON.parse(value);
+          if (!Array.isArray(packs) || !packs.includes('file/ProjectMenuWallpaper.zip')) return line;
+          return `${key}:${JSON.stringify(packs.filter(pack => pack !== 'file/ProjectMenuWallpaper.zip'))}`;
+        } catch { return line; }
+      });
+      if (updated !== original) fs.writeFileSync(optionsPath, updated, 'utf8');
+    }
     writePerformanceOptions(root, maxFps);
     const registeredServers = uniqueServicesAllowed ? await getRegisteredServers(settings.projectId || 'unique') : [];
     const launchServer = registeredServers[0] || settings.server || PROJECT_SERVER;
+    launchState.setStage('loader');
     writeServersDat(root, registeredServers, { preserveExisting: true });
     event.sender.send('launch-progress', {
       stage: 'loader',
       name: `Preparing ${settings.modLoader === 'vanilla' ? 'Vanilla' : formatLoaderNameForLog(settings.modLoader)}`
     });
     const loader = await ensureSelectedLoaderVersion(root, settings);
+    launchState.checkpoint();
     event.sender.send('launch-progress', { stage: 'java', name: 'Checking Java' });
-    const java = resolveJava17(settings.javaPath);
+    launchState.setStage('java-and-auth');
+    const versionMetadata = JSON.parse(fs.readFileSync(path.join(root, 'versions', settings.minecraftVersion, `${settings.minecraftVersion}.json`), 'utf8'));
+    const requiredJava = Number(versionMetadata.javaVersion?.majorVersion) || 17;
+    const java = resolveJava17(settings.javaPath, requiredJava);
     const auth = await getSessionMinecraftAuth(user.sessionToken, user.nickname);
+    if (auth?.access_token) gameLogs.secrets.push(auth.access_token);
+    launchState.checkpoint();
 
     launcher.event.removeAllListeners('debug');
     launcher.event.removeAllListeners('data');
@@ -6226,18 +5526,13 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     launcher.event.removeAllListeners('close');
     launcher.event.removeAllListeners('error');
 
-    launcher.event.on('debug', (data) => event.sender.send('launch-debug', String(data)));
-    launcher.event.on('data', (data) => event.sender.send('launch-log', data.toString()));
+    launcher.event.on('debug', (data) => event.sender.send('launch-debug', gameLogs.write('debug', data)));
+    launcher.event.on('data', (data) => event.sender.send('launch-log', gameLogs.write('stdout', data)));
     launcher.event.on('download-status', (data) => event.sender.send('launch-progress', data));
     launcher.event.on('close', (code) => {
-      activeLaunches.delete(user.sessionToken);
-      if (launchState.window && !launchState.window.isDestroyed()) {
-        launchState.window.show();
-      }
-      stopPlayingDiscordRpc();
-      event.sender.send('launch-closed', code);
+      launchState.finish(code, launchState.process?.signalCode);
     });
-    launcher.event.on('error', (data) => event.sender.send('launch-error', data.toString()));
+    launcher.event.on('error', (data) => event.sender.send('launch-error', gameLogs.write('stderr', data)));
 
     const options = {
       authorization: auth,
@@ -6246,7 +5541,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
       os: getOsName(),
       version: {
         number: settings.minecraftVersion || '1.20.1',
-        type: settings.modLoader === 'vanilla' ? 'release' : formatLoaderNameForLog(settings.modLoader),
+        type: settings.modLoader === 'vanilla' ? (supportedSnapshotVersionsCache.includes(settings.minecraftVersion) ? 'snapshot' : 'release') : formatLoaderNameForLog(settings.modLoader),
         ...(loader?.id ? { custom: loader.id } : {})
       },
       javaPath: java.path,
@@ -6254,7 +5549,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
         min: String(settings.memory.min),
         max: String(settings.memory.max)
       },
-      customArgs: [
+      customArgs: mergeJvmArguments([
         '-XX:+UseG1GC',
         '-XX:+UnlockExperimentalVMOptions',
         '-XX:G1NewSizePercent=20',
@@ -6269,7 +5564,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
         `-Dproject.auth.api=${UNIQUE_AUTH_VERIFY_URL || ''}`,
         `-Dproject.launcher.api=${UNIQUE_API_URL || ''}`,
         `-Dproject.launcher.build=${UNIQUE_LAUNCHER_BUILD_ID}`
-      ]
+      ], customLaunch.jvm)
     };
 
     if (uniqueServicesAllowed && launchServer?.host) {
@@ -6281,28 +5576,42 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
 
     const originalSpawn = childProcess.spawn;
     childProcess.spawn = (...spawnArgs) => {
+      // Helper processes (image conversion, Java probes, downloads) are not Minecraft.
+      if (path.resolve(String(spawnArgs[0])).toLowerCase() !== path.resolve(options.javaPath).toLowerCase()
+          || !Array.isArray(spawnArgs[1]) || !spawnArgs[1].includes('--gameDir')) return originalSpawn(...spawnArgs);
+      launchState.checkpoint();
+      spawnArgs[2] = { ...(spawnArgs[2] || {}), cwd: root, windowsHide: true };
+      spawnArgs[1] = [...spawnArgs[1], ...customLaunch.game];
       const minecraftProcess = originalSpawn(...spawnArgs);
-      launchState.process = minecraftProcess;
+      launchState.attach(minecraftProcess);
+      event.sender.send('launch-started', { pid: minecraftProcess.pid || null });
       if (launchState.hideLauncherDuringGame && launchState.window && !launchState.window.isDestroyed()) {
         launchState.window.hide();
-      }
-      if (launchState.cancelled && !minecraftProcess.killed) {
-        minecraftProcess.kill();
       }
       return minecraftProcess;
     };
 
     try {
+      launchState.setStage('game-download-and-start');
       await launcher.core(options);
+      launchState.checkpoint();
     } finally {
       childProcess.spawn = originalSpawn;
     }
 
-    startPlayingDiscordRpc(user, { ...settings, server: launchServer });
+    if (!launchState.finished && launchState.process) startPlayingDiscordRpc(user, { ...settings, server: launchServer });
 
     if (!launchState.process) {
-      activeLaunches.delete(user.sessionToken);
-      stopPlayingDiscordRpc();
+      const error = new Error('Minecraft did not create a process. See preparation logs for the cause.');
+      error.code = 'MINECRAFT_NOT_STARTED';
+      throw error;
+    }
+
+    try {
+      const p = _launchDebugPath || path.join(app.getPath('userData'), 'logs', 'launch-debug.log');
+      fs.appendFileSync(p, `${new Date().toISOString()}\tLAUNCH-SUCCESS\tpid:${launchState.process?.pid||''}\n`, { encoding: 'utf8' });
+    } catch (e) {
+      try { console.error('Failed to write launch success log:', e && (e.stack || e.message || e)); } catch (__) {}
     }
 
     return {
@@ -6315,20 +5624,32 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
       modLoader: settings.modLoader,
       java,
       maxFps,
-      repairedAssets
+      repairedAssets,
+      running: !launchState.finished && Boolean(launchState.process),
+      pid: launchState.process?.pid || null
     };
   } catch (err) {
-    activeLaunches.delete(user.sessionToken);
-    if (launchState.window && !launchState.window.isDestroyed()) {
-      launchState.window.show();
+    try {
+      const p = _launchDebugPath || path.join(app.getPath('userData'), 'logs', 'launch-debug.log');
+      fs.appendFileSync(p, `${new Date().toISOString()}\tLAUNCH-ERROR\t${gameLogs.write('error', err.stack || err.message || err)}\n`, { encoding: 'utf8' });
+    } catch (e) {
+      try { console.error('Failed to write launch error log:', e && (e.stack || e.message || e)); } catch (__) {}
     }
+    launchState.finish(err.code === 'LAUNCH_CANCELLED' ? 0 : 1, null, err);
     return {
       success: false,
       error: err.message || String(err),
       code: err.code || '',
-      javaInstallUrl: err.code === 'JAVA_REQUIRED' ? JAVA_DOWNLOAD_URL : ''
+      javaInstallUrl: err.code === 'JAVA_REQUIRED' ? `https://adoptium.net/temurin/releases/?version=${Math.max(21, err.minimumJava || 21)}` : '',
+      minimumJava: err.minimumJava || null
     };
   }
+});
+
+ipcMain.handle('get-launch-state', async () => {
+  const state = [...activeLaunches.values()][0];
+  if (state?.process && (state.process.exitCode !== null || state.process.signalCode)) state.finish(state.process.exitCode, state.process.signalCode);
+  return { active: Boolean(state && !state.finished), running: Boolean(state?.process && !state.finished), pid: state?.process?.pid || null };
 });
 
 ipcMain.handle('stop-minecraft', async (event, payload = {}) => {
@@ -6336,29 +5657,15 @@ ipcMain.handle('stop-minecraft', async (event, payload = {}) => {
   const launchState = activeLaunches.get(launchKey);
 
   if (!launchState) {
-    return { success: false, error: 'Minecraft is not running.' };
-  }
-
-  launchState.cancelled = true;
-
-  if (launchState.process && !launchState.process.killed) {
-    launchState.process.kill();
-    if (launchState.window && !launchState.window.isDestroyed()) {
-      launchState.window.show();
-    }
-    stopPlayingDiscordRpc();
     return { success: true, stopped: true };
   }
-
-  return { success: true, stopped: false };
+  return launchState.stop();
 });
 
 if (!process.env.UNIQUE_WEBVIEW2_BACKEND) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    configureAutoUpdates();
     createWindow();
-    scheduleAutoUpdates();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
