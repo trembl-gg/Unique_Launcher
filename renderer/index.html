@@ -18,6 +18,14 @@
       </span>
       <strong>UNIQUE LAUNCHER</strong>
     </div>
+    <div class="nav-actions titlebar-account-actions">
+      <button class="tiny-button hidden" id="update-notification" type="button" aria-controls="release-panel" aria-expanded="false">Обновление</button>
+      <span class="user-pill" id="active-user" role="button" tabindex="0">
+        <img class="user-avatar" id="active-user-avatar" alt="" />
+        <span id="active-user-name">offline</span>
+      </span>
+      <button class="ghost-button" id="logout-button" type="button" aria-label="Выйти" title="Выйти">Выйти</button>
+    </div>
     <div class="window-controls">
       <button class="window-control" id="window-minimize" type="button" aria-label="Свернуть" title="Свернуть">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10" /></svg>
@@ -93,19 +101,6 @@
             <strong>UNIQUE LAUNCHER</strong>
             <span id="server-label">Minecraft Launcher</span>
           </div>
-        </div>
-        <div class="nav-actions">
-          <button class="section-tab nav-square" type="button" data-section="settings" aria-label="Настройки" title="Настройки">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.5.9-2.2-.6-2.5 4.3 1.6 1.6v1.8l-1.6 1.6 2.5 4.3 2.2-.6 1.5.9.6 2.2h5l.6-2.2 1.5-.9 2.2.6 2.5-4.3-1.6-1.6v-1.8l1.6-1.6-2.5-4.3-2.2.6-1.5-.9-.6-2.2z"/><circle cx="12" cy="12" r="3.5"/></svg>
-          </button>
-          <button class="section-tab nav-square" type="button" data-section="profile" aria-label="Профиль" title="Профиль">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0v1a4 4 0 0 1-8 0z" /><path d="M5 21a7 7 0 0 1 14 0" /></svg>
-          </button>
-          <span class="user-pill" id="active-user" role="button" tabindex="0">
-            <img class="user-avatar" id="active-user-avatar" alt="" />
-            <span id="active-user-name">offline</span>
-          </span>
-          <button class="ghost-button" id="logout-button" type="button" aria-label="Выйти" title="Выйти">Выйти</button>
         </div>
       </nav>
 
@@ -587,9 +582,10 @@
               </div>
               <div class="profile-actions">
                 <button class="tiny-button" id="check-updates" type="button">Проверить</button>
-                <button class="tiny-button hidden" id="install-update" type="button">Установить</button>
+                <button class="tiny-button" id="show-current-release" type="button">Что нового</button>
+                <button class="tiny-button hidden" id="install-update" type="button">Скачать с GitHub</button>
               </div>
-              <p class="hint" id="update-message">Лаунчер проверяет релизы из настроенного update feed.</p>
+              <p class="hint" id="update-message">Проверка GitHub при запуске и каждые 30 минут.</p>
             </section>
 
             <section class="panel-section" data-settings-group="debug">
@@ -689,12 +685,26 @@
             <button class="tiny-button" id="open-launch-logs" type="button">Папка логов</button>
             <button class="tiny-button" id="clear-log" type="button">Очистить</button>
           </div>
-          <pre id="launch-log"></pre>
+          <fieldset class="log-levels" aria-label="Уровни журнала">
+            <label><input type="checkbox" data-log-level="info" checked />Информация</label>
+            <label><input type="checkbox" data-log-level="error" checked />Ошибки</label>
+            <label><input type="checkbox" data-log-level="warn" checked />Предупреждения</label>
+            <label><input type="checkbox" data-log-level="debug" />Отладка</label>
+          </fieldset>
+          <pre id="launch-log" aria-label="Журнал запуска"></pre>
         </section>
       </div>
 
     </section>
   </main>
+  <section id="release-panel" class="release-panel" aria-labelledby="release-panel-title" hidden>
+    <div class="section-head"><h2 id="release-panel-title">Что нового</h2><button class="icon-button" id="close-release-panel" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <p id="release-version" class="hint"></p>
+    <h3 id="release-title" data-i18n-ignore></h3>
+    <div id="release-notes" class="release-notes" data-i18n-ignore></div>
+    <p id="release-error" class="hint" role="status"></p>
+    <button id="release-download" class="primary-button" type="button">Скачать с GitHub</button>
+  </section>
   <dialog id="game-crash-screen" class="game-crash-screen"><h1>Игра завершилась с ошибкой</h1><p>Код завершения</p><strong id="game-crash-code" data-i18n-ignore></strong><p>Подробности доступны в журнале запуска.</p><button id="close-game-crash" type="button" class="primary-button">Закрыть</button></dialog>
   <dialog id="instance-editor" class="instance-editor">
     <form id="instance-editor-form">

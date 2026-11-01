@@ -31,6 +31,23 @@ async function test() {
     await stopped.collect(1, true);
     assert(!cleanEvents.some(text => text.includes('test crash')), 'requested close is not a crash alert');
 
+    for (const language of ['ru', 'en', 'es']) {
+      const visible = [];
+      const log = new GameLogs({ root: gameRoot, directory: path.join(temp, language), language, emit: (_, value) => visible.push(value) });
+      log.lifecycle({ event: 'stage', stage: 'java-and-auth' });
+      log.lifecycle({ event: 'finished', method: 'launch-error', code: 1, errorCode: 'JAVA_REQUIRED', reason: 'Java 25 required', stack: 'PRIVATE STACK session-secret' });
+      assert.equal(visible[0].level, 'debug'); assert.equal(visible[1].level, 'error');
+      assert.match(visible[1].message, /Java 25 required/);
+      assert.doesNotMatch(JSON.stringify(visible), /PRIVATE STACK|\[lifecycle\]|"event":/);
+      assert.match(fs.readFileSync(log.file, 'utf8'), /PRIVATE STACK/);
+      log.lifecycle({ event: 'finished', method: 'process-exit', code: 0 });
+      assert.equal(visible.at(-1).level, 'info');
+      log.lifecycle({ event: 'finished', method: 'cancel-preparation', errorCode: 'LAUNCH_CANCELLED', code: 0 });
+      assert.equal(visible.at(-1).level, 'warn');
+      log.lifecycle({ event: 'finished', method: 'launch-error', reason: 'spawn failed', code: 1 });
+      assert.match(visible.at(-1).message, /spawn failed/, 'errors without a code preserve their reason');
+    }
+
     const bus = new BackendEvents();
     bus.emit('launch-started', { pid: 123 }); bus.emit('launch-log', 'hello');
     let output = '';

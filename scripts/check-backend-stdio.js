@@ -54,6 +54,12 @@ async function check() {
     assert(startedOrExited.handlers > 60);
     const settings = await invoke('get-settings');
     assert.equal(typeof settings.language, 'string');
+    for (const language of ['ru', 'en', 'es']) {
+      const notes = await invoke('updates-current-release', { language });
+      assert.equal(notes.success, true);
+      assert.equal(notes.release.version, '1.0.0');
+      assert.equal(notes.release.notes, require('../lib/release-notes.json')[language]);
+    }
     const accounts = await invoke('auth-accounts-list');
     assert.equal(accounts.success, true);
     assert.deepEqual(accounts.accounts, []);

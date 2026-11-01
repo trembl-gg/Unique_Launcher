@@ -42,7 +42,7 @@ async function check() {
     document: { getElementById: id => elements.get(id) }, activeUser: null,
     authScreen, launcherScreen, guestMessage, loginMessage, microsoftLoginButton: element(),
     fields: { guestNick: element() }, updateUserIdentity() {}, refreshAccountSwitcher: async () => {},
-    loadAppState: async () => {}, saveSettings: async () => {}, refreshPreviews: async () => {},
+    loadAppState: async () => {}, startUpdateChecks() {}, saveSettings: async () => {}, refreshPreviews: async () => {},
     setMessage: (element, text) => { element.textContent = text; },
     window: { api: {
       guestLogin: async () => ({ success: true, user: { nickname: 'OfflineUser' } }),

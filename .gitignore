@@ -36,6 +36,19 @@ config/
 logs/
 *.log
 hs_err_pid*.log
+*.log.gz
+replay_pid*.log
+*.dmp
+*.download
+*.part
+/minecraft/
+/.minecraft/
+/saves/
+/crash-reports/
+/screenshots/
+/.horizon-cache/
+/horizon/
+/spotify-client.json
 
 # Project jars and server plugin jars
 mods/
@@ -68,3 +81,10 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+*.tmp
+*.bak
+*.orig
+*.rej
+coverage/
+.cache/
+CHANGELOG.md

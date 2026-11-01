@@ -10,6 +10,8 @@ const { sendAuthCallback } = require('./lib/auth-callback');
 const { ensureHorizonResources } = require('./lib/horizon-resources');
 const { syncHorizonInstance } = require('./lib/horizon-instance');
 const { GameLogs } = require('./lib/game-logs');
+const { LauncherUpdates, RELEASES_URL } = require('./lib/launcher-updates');
+const releaseNotes = require('./lib/release-notes.json');
 const { GameStorage } = require('./lib/game-storage');
 const { InstancePaths } = require('./lib/instance-paths');
 const { instanceLaunchOptions, mergeJvmArguments } = require('./lib/instance-launch-options');
@@ -112,11 +114,7 @@ const UNIQUE_PROFILE_URL = process.env.UNIQUE_PROFILE_URL
   || (UNIQUE_API_URL ? `${UNIQUE_API_URL}/launcher/profile` : '');
 const UNIQUE_SERVERS_URL = process.env.UNIQUE_SERVERS_URL
   || (UNIQUE_API_URL ? `${UNIQUE_API_URL}/launcher/servers` : '');
-const UNIQUE_UPDATE_URL = (process.env.UNIQUE_UPDATE_URL || (UNIQUE_API_URL ? `${UNIQUE_API_URL}/updates` : '')).replace(/\/+$/, '');
-const AUTO_UPDATE_CHECK_INTERVAL_MS = Math.max(
-  5 * 60 * 1000,
-  Number(process.env.UNIQUE_UPDATE_CHECK_INTERVAL_MS || 30 * 60 * 1000)
-);
+const UNIQUE_UPDATE_URL = RELEASES_URL;
 const UNIQUE_NEWS_URL = process.env.UNIQUE_NEWS_URL
   || (UNIQUE_API_URL ? `${UNIQUE_API_URL}/launcher/news` : '');
 const UNIQUE_CRASH_REPORT_URL = process.env.UNIQUE_CRASH_REPORT_URL
@@ -5079,9 +5077,19 @@ ipcMain.handle('java-rescan', async () => ({
   })()
 }));
 
-ipcMain.handle('updates-check', async () => ({ success: false, disabled: true, error: 'Автоматические обновления отключены.' }));
+const launcherUpdates = new LauncherUpdates({ version: app.getVersion(), request: requestJson });
+ipcMain.handle('updates-check', () => launcherUpdates.check());
 
-ipcMain.handle('updates-install', async () => ({ success: false, disabled: true, error: 'Автоматические обновления отключены.' }));
+ipcMain.handle('updates-current-release', async (_, payload = {}) => {
+  const language = ['ru', 'en', 'es'].includes(payload.language) ? payload.language : getSettings(payload.nickname).language;
+  return { success: true, release: { version: app.getVersion(), title: `UNIQUE Launcher ${app.getVersion()}`, notes: releaseNotes[language] || releaseNotes.en, url: `${RELEASES_URL}/latest` } };
+});
+ipcMain.handle('updates-install', async () => {
+  const result = await launcherUpdates.check();
+  if (!result.success || result.state !== 'available') return { success: false };
+  await shell.openExternal(result.release.url);
+  return { success: true };
+});
 
 ipcMain.handle('diagnostics-get', async () => {
   try {
@@ -5124,8 +5132,8 @@ ipcMain.handle('repair-game', async (event, payload = {}) => {
 ipcMain.handle('open-logs-folder', async () => {
   const logsDir = path.join(app.getPath('userData'), 'logs');
   ensureDir(logsDir);
-  await shell.openPath(logsDir);
-  return { success: true, folder: logsDir };
+  const error = await shell.openPath(logsDir);
+  return error ? { success: false, error } : { success: true, folder: logsDir };
 });
 
 ipcMain.handle('choose-file', async (event, options = {}) => {
@@ -5326,8 +5334,9 @@ ipcMain.handle('launch-horizon', async (event, payload = {}) => {
   if (!instance) return { success: false, error: 'Сначала выберите сборку для Rust-запуска.' };
   const source = instancePaths.root(session.nickname, instance.id);
   const root = path.join(gameStorage.root, 'horizon', crypto.createHash('sha256').update(session.nickname).digest('hex').slice(0, 24), instance.id);
-  const logs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), secrets: [key], emit: (channel, data) => event.sender.send(channel, data) });
+  const logs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), language: settings.language, secrets: [key], emit: (channel, data) => event.sender.send(channel, data) });
   const state = new LaunchSession({
+    engine: 'horizon',
     record: entry => logs.lifecycle(entry),
     window: BrowserWindow.fromWebContents(event.sender),
     hideLauncherDuringGame: Boolean(settings.hideLauncherDuringGame),
@@ -5363,9 +5372,9 @@ ipcMain.handle('launch-horizon', async (event, payload = {}) => {
     process.stdin.on('error', error => event.sender.send('launch-log', logs.write('stdin', error.message)));
     await new Promise((resolve, reject) => { process.once('spawn', resolve); process.once('error', reject); });
     process.stdin.end(JSON.stringify(plan.session));
-    event.sender.send('launch-started', { engine: 'horizon' });
+    event.sender.send('launch-started', { engine: 'horizon', pid: process.pid || null });
     if (settings.hideLauncherDuringGame) state.window?.hide();
-    return { success: true, content, instanceId: instance.id };
+    return { success: true, content, instanceId: instance.id, pid: process.pid || null };
   } catch (error) {
     state.finish(error.code === 'LAUNCH_CANCELLED' ? 0 : 1, null, error);
     return { success: false, error: logs.redact(error.message), code: error.code };
@@ -5422,7 +5431,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
 
   // Local launcher sessions are never invalidated by a removed external service.
 
-  const gameLogs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), secrets: [user.sessionToken], emit: (channel, data) => event.sender.send(channel, data) });
+  const gameLogs = new GameLogs({ root, directory: path.join(app.getPath('userData'), 'logs'), language: settings.language, secrets: [user.sessionToken], emit: (channel, data) => event.sender.send(channel, data) });
   const launchState = new LaunchSession({
     record: entry => gameLogs.lifecycle(entry),
     window: launchWindow,
@@ -5649,7 +5658,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
 ipcMain.handle('get-launch-state', async () => {
   const state = [...activeLaunches.values()][0];
   if (state?.process && (state.process.exitCode !== null || state.process.signalCode)) state.finish(state.process.exitCode, state.process.signalCode);
-  return { active: Boolean(state && !state.finished), running: Boolean(state?.process && !state.finished), pid: state?.process?.pid || null };
+  return { active: Boolean(state && !state.finished), running: Boolean(state?.process && !state.finished), pid: state?.process?.pid || null, engine: state?.engine || 'java' };
 });
 
 ipcMain.handle('stop-minecraft', async (event, payload = {}) => {

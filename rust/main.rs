@@ -114,7 +114,7 @@ fn run() -> Result<(), String> {
                 if message["type"] == "invoke-result" {
                     let channel = message["id"].as_u64().and_then(|id| pending.remove(&id));
                     if channel.as_deref() == Some("get-launch-state") && message["result"]["running"] == true {
-                        if let Some(pid) = message["result"]["pid"].as_u64() { game_icons.track(pid as u32); }
+                        if let Some(pid) = message["result"]["pid"].as_u64() { game_icons.track(pid as u32, message["result"]["engine"].as_str().unwrap_or("java")); }
                     }
                     if channel.as_deref() == Some("get-system-info") {
                         if let Some(result) = message["result"].as_object_mut() {
@@ -123,7 +123,7 @@ fn run() -> Result<(), String> {
                     }
                 }
                 if message["channel"] == "launch-started" {
-                    if let Some(pid) = message["data"]["pid"].as_u64() { game_icons.track(pid as u32); }
+                    if let Some(pid) = message["data"]["pid"].as_u64() { game_icons.track(pid as u32, message["data"]["engine"].as_str().unwrap_or("java")); }
                 }
                 if message["type"] == "event" && message["channel"] == "window-control" {
                     window_action(&window, message["data"].as_str().unwrap_or(""), control);

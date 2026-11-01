@@ -159,6 +159,7 @@
     installJava: () => invoke('install-java'),
     rescanJava: () => invoke('java-rescan'),
     checkForUpdates: () => invoke('updates-check'),
+    getCurrentRelease: (payload) => invoke('updates-current-release', payload),
     installUpdate: () => invoke('updates-install'),
     getDiagnostics: () => invoke('diagnostics-get'),
     exportDiagnostics: () => invoke('diagnostics-export'),

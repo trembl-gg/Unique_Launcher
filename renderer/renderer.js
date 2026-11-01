@@ -52,6 +52,9 @@ const playerPreviewCanvas = document.getElementById('player-preview-canvas');
 const updateStatus = document.getElementById('update-status');
 const updateMessage = document.getElementById('update-message');
 const installUpdateButton = document.getElementById('install-update');
+let launcherUpdateState = { state: 'idle' };
+let updateCheckPending = null, updateCheckTimer = null, lastUpdateCheck = 0;
+let notifiedReleaseVersion = '', displayedRelease = null;
 const diagnosticsMessage = document.getElementById('diagnostics-message');
 const apiHealthStatus = document.getElementById('api-health-status');
 const apiHealthDetail = document.getElementById('api-health-detail');
@@ -221,6 +224,10 @@ const SVG_ICONS = {
   skin: '<svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l2 3 4 2-2 5-3-1v9H8v-9l-3 1-2-5 4-2z"/></svg>',
   cape: '<svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l2 18H6z"/><path d="M9 6h6"/></svg>',
   folder: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  copy: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
+  search: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>',
+  plus: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  world: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18z"/></svg>',
   java: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 18h8"/><path d="M10 22h4"/><path d="M7 14h10a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3z"/><path d="M12 2c2 2-2 3 0 5s-2 3 0 5"/></svg>',
   save: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l2 2v16H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>',
   download: '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
@@ -255,9 +262,9 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('open-user-mods'), 'folder', document.getElementById('open-user-mods')?.textContent || 'User mods');
   setButtonIconText(document.getElementById('open-user-mods-panel'), 'folder', document.getElementById('open-user-mods-panel')?.textContent || 'Open folder');
   setButtonIconText(document.getElementById('refresh-mods-panel'), 'refresh', document.getElementById('refresh-mods-panel')?.textContent || 'Refresh');
-  setButtonIconText(document.getElementById('modrinth-mod-search-button'), 'download', document.getElementById('modrinth-mod-search-button')?.textContent || 'Search');
-  setButtonIconText(document.getElementById('modrinth-pack-search-button'), 'catalog', document.getElementById('modrinth-pack-search-button')?.textContent || 'Search');
-  setButtonIconText(document.getElementById('modrinth-content-search-button'), 'catalog', document.getElementById('modrinth-content-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-mod-search-button'), 'search', document.getElementById('modrinth-mod-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-pack-search-button'), 'search', document.getElementById('modrinth-pack-search-button')?.textContent || 'Search');
+  setButtonIconText(document.getElementById('modrinth-content-search-button'), 'search', document.getElementById('modrinth-content-search-button')?.textContent || 'Search');
   setButtonIconText(document.getElementById('modrinth-import-button'), 'download', document.getElementById('modrinth-import-button')?.textContent || 'Import');
   setButtonIconText(document.getElementById('refresh-instances'), 'refresh', document.getElementById('refresh-instances')?.textContent || 'Обновить');
   setButtonIconText(document.getElementById('create-instance'), 'catalog', document.getElementById('create-instance')?.textContent || 'Создать сборку');
@@ -288,6 +295,20 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('open-logs'), 'folder', document.getElementById('open-logs')?.textContent || 'Открыть логи');
   setButtonIconText(document.getElementById('export-diagnostics'), 'report', document.getElementById('export-diagnostics')?.textContent || 'Собрать ZIP');
   setButtonIconText(document.getElementById('analyze-crash'), 'report', document.getElementById('analyze-crash')?.textContent || 'Анализ краша');
+  for (const [id, icon] of [
+    ['copy-launch-log', 'copy'], ['home-instance-content', 'catalog'], ['home-instance-files', 'folder'],
+    ['home-instance-worlds', 'world'], ['home-instance-logs', 'report'], ['add-account', 'plus'],
+    ['import-existing-instance', 'folder'], ['import-mrpack', 'download'], ['pack-import-url-button', 'link'],
+    ['choose-game-storage', 'folder'], ['default-game-storage', 'folder'], ['download-skin-by-nick', 'download'],
+    ['choose-horizon-client', 'folder'], ['choose-horizon-resources', 'folder']
+  ]) {
+    const button = document.getElementById(id);
+    if (button) setButtonIconText(button, icon, button.textContent.trim());
+  }
+  for (const [id, icon] of [['update-notification', 'download'], ['install-update', 'download'], ['show-current-release', 'report'], ['release-download', 'download']]) {
+    const button = document.getElementById(id);
+    if (button) setButtonIconText(button, icon, button.textContent.trim());
+  }
   setButtonIconText(launchButton, 'play', launchButton?.textContent || 'Запустить Fabric');
   prependTileIcon(document.getElementById('select-skin'), 'skin');
   prependTileIcon(document.getElementById('select-cape'), 'cape');
@@ -797,6 +818,11 @@ function applyLanguage(language) {
   });
   document.querySelectorAll('.instance-delete').forEach((button) => { button.textContent = copy.remove; });
   document.querySelectorAll('.instance-content').forEach((button) => { button.textContent = copy[button.dataset.content] || button.textContent; });
+  renderUpdateStatus(launcherUpdateState);
+  if (displayedRelease && !document.getElementById('release-panel').hidden) {
+    if (displayedRelease.local) void showCurrentRelease();
+    else showReleaseNotes(displayedRelease, true);
+  }
 }
 function renderBuildCatalog() {
   if (buildLibraryGrid) {
@@ -891,7 +917,16 @@ function renderSelectedInstanceHeader() {
   const instance = getActiveBuildInstance();
   const instanceName = document.getElementById('launch-instance-name');
   if (instanceName) instanceName.textContent = instance?.name || 'Выберите сборку';
-  if (serverInfo) serverInfo.textContent = instance ? formatLoaderName(instance.loader) + ' · Minecraft ' + instance.minecraftVersion : 'Создайте или импортируйте сборку';
+  if (serverInfo) {
+    serverInfo.replaceChildren();
+    if (instance) {
+      for (const label of [formatLoaderName(instance.loader), `Minecraft ${instance.minecraftVersion}`]) {
+        const tag = document.createElement('span');
+        tag.className = 'instance-version-tag'; tag.textContent = label;
+        serverInfo.appendChild(tag);
+      }
+    } else serverInfo.textContent = 'Создайте или импортируйте сборку';
+  }
 }
 function renderInstanceRail() {
   renderSelectedInstanceHeader();
@@ -1268,13 +1303,32 @@ async function loadTitlebarIcon() {
   }
 }
 
-function appendLog(line) {
-  const text = String(line || '').trim();
-  if (!text) return;
-
-  const next = `${launchLog.textContent}${text}\n`;
-  launchLog.textContent = next.split('\n').slice(-140).join('\n');
-  launchLog.scrollTop = launchLog.scrollHeight;
+const launchLogEntries = [];
+const visibleLogLevels = new Set(['info', 'warn', 'error']);
+function renderLaunchLog() {
+  const follow = launchLog.scrollTop + launchLog.clientHeight >= launchLog.scrollHeight - 32;
+  const fragment = document.createDocumentFragment();
+  for (const entry of launchLogEntries) {
+    if (!visibleLogLevels.has(entry.level)) continue;
+    const row = document.createElement('span');
+    row.className = `launch-log-entry log-${entry.level}`;
+    row.textContent = `[${entry.level.toUpperCase()}] ${entry.message}\n`;
+    fragment.appendChild(row);
+  }
+  launchLog.replaceChildren(fragment);
+  if (follow) launchLog.scrollTop = launchLog.scrollHeight;
+}
+function appendLog(value, fallbackLevel = 'info') {
+  const text = String(value?.message ?? value ?? '').trim();
+  if (!text || text.startsWith('[lifecycle]')) return;
+  const explicitLevel = ['info', 'warn', 'error', 'debug'].includes(value?.level) ? value.level : null;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim() || line.trimStart().startsWith('[lifecycle]')) continue;
+    const level = explicitLevel || (/\b(error|fatal|severe)\b|ошибк|ошибка|аварийн/i.test(line) ? 'error' : /\bwarn(?:ing)?\b|предупрежден/i.test(line) ? 'warn' : /\bdebug\b/i.test(line) ? 'debug' : fallbackLevel);
+    launchLogEntries.push({ level, message: localizer.value(line.replace(/^\[(?:debug|error|warn|info)\]\s*/i, ''), {}, 'text').slice(0, 8192) });
+  }
+  launchLogEntries.splice(0, Math.max(0, launchLogEntries.length - 400));
+  renderLaunchLog();
 }
 
 async function setImagePreview(img, filePath) {
@@ -2014,7 +2068,6 @@ function applySettingsToUi() {
   }
   if (fields.reduceMotion) fields.reduceMotion.checked = Boolean(currentSettings.appearance?.reduceMotion);
   versionLabel.textContent = fields.minecraftVersion.value;
-  serverInfo.textContent = currentSettings.server.name || 'Minecraft Launcher';
   serverLabel.textContent = currentSettings.server.name;
   fields.hideLauncherDuringGame.checked = Boolean(currentSettings.hideLauncherDuringGame);
   if (fields.useUniqueMods) fields.useUniqueMods.checked = currentSettings.useUniqueMods !== false;
@@ -2275,9 +2328,7 @@ function renderRegisteredServers(servers = []) {
   }
 
   const primary = liveServers[0];
-  if (serverInfo) {
-    serverInfo.textContent = primary.name || 'Minecraft Launcher';
-  }
+  renderSelectedInstanceHeader();
   if (serverLabel) {
     serverLabel.textContent = primary.name || 'Minecraft Launcher';
   }
@@ -3338,6 +3389,7 @@ async function enterLauncher(user) {
   authScreen.classList.add('hidden');
   launcherScreen.classList.remove('hidden');
   await loadAppState();
+  startUpdateChecks();
 }
 
 async function login(event) {
@@ -3741,43 +3793,109 @@ document.getElementById('preview-zoom-out')?.addEventListener('click', () => zoo
 document.getElementById('preview-zoom-in')?.addEventListener('click', () => zoomPlayerPreview(0.12));
 
 function renderUpdateStatus(payload = {}) {
+  launcherUpdateState = payload;
   const state = payload.state || 'idle';
   const labels = {
     checking: 'проверка',
     available: 'доступно',
     none: 'актуально',
-    downloading: 'загрузка',
-    downloaded: 'готово',
+    unpublished: 'релиз не опубликован',
+    idle: 'готово',
     error: 'ошибка'
   };
   if (updateStatus) updateStatus.textContent = labels[state] || state;
   if (updateHealthStatus) updateHealthStatus.textContent = labels[state] || state;
-  if (installUpdateButton) installUpdateButton.classList.toggle('hidden', state !== 'downloaded');
+  if (installUpdateButton) installUpdateButton.classList.toggle('hidden', state !== 'available');
+  const badge = document.getElementById('update-notification');
+  badge.classList.toggle('hidden', state !== 'available');
+  if (state === 'available') setButtonIconText(badge, 'download', `${localizer.value('Обновление', {}, 'text')} ${payload.release.version}`);
   if (!updateMessage) return;
 
   if (state === 'available') {
-    updateMessage.textContent = 'Обновление найдено, начинается загрузка.';
-  } else if (state === 'downloading') {
-    updateMessage.textContent = `Загрузка обновления: ${Math.round(Number(payload.progress?.percent || 0))}%`;
-  } else if (state === 'downloaded') {
-    updateMessage.textContent = payload.autoInstallOnQuit
-      ? 'Обновление скачано. Оно установится при закрытии лаунчера, либо можно установить сейчас.'
-      : 'Обновление скачано. Можно установить и перезапустить лаунчер.';
+    updateMessage.textContent = 'Доступна новая версия. Посмотрите список изменений и скачайте её с GitHub.';
   } else if (state === 'none') {
     updateMessage.textContent = 'Установлена актуальная версия лаунчера.';
+  } else if (state === 'unpublished') {
+    updateMessage.textContent = 'Первый стабильный релиз ещё не опубликован на GitHub.';
   } else if (state === 'error') {
-    updateMessage.textContent = payload.error || 'Не удалось проверить обновление.';
+    updateMessage.textContent = payload.errorCode === 'RATE_LIMIT' ? 'GitHub ограничил число запросов. Повторите проверку позже.' : 'Не удалось проверить обновления. Проверьте подключение к интернету.';
   } else if (state === 'checking') {
     updateMessage.textContent = 'Проверяю доступные релизы...';
   }
 }
 
-async function checkUpdates() {
-  renderUpdateStatus({ state: 'checking' });
-  const result = await window.api.checkForUpdates();
-  if (!result.success) {
-    renderUpdateStatus({ state: 'error', error: result.error || 'Обновления сейчас недоступны.' });
+function showReleaseNotes(release, available) {
+  displayedRelease = release;
+  document.getElementById('release-panel-title').textContent = available ? 'Доступно обновление' : 'Что нового';
+  document.getElementById('release-title').textContent = release.title;
+  const current = launcherUpdateState.currentVersion || systemInfo?.launcherVersion || release.version;
+  document.getElementById('release-version').textContent = `${localizer.value('Установлена версия', {}, 'text')} ${current}${available ? ` → ${release.version}` : ''}`;
+  const notes = document.getElementById('release-notes'); notes.replaceChildren();
+  let list;
+  for (const line of String(release.notes || '').slice(0, 64000).split(/\r?\n/).slice(0, 600)) {
+    const text = line.trim();
+    if (!text) { list = null; continue; }
+    const heading = /^#{1,6}\s+(.+)$/.exec(text), item = /^[-*]\s+(.+)$/.exec(text);
+    const element = document.createElement(heading ? 'h3' : item ? 'li' : 'p');
+    element.textContent = heading?.[1] || item?.[1] || text;
+    if (item) { if (!list) { list = document.createElement('ul'); notes.appendChild(list); } list.appendChild(element); }
+    else { list = null; notes.appendChild(element); }
   }
+  if (!notes.childNodes.length) { const paragraph = document.createElement('p'); paragraph.textContent = localizer.value('Автор релиза не добавил описание изменений.', {}, 'text'); notes.appendChild(paragraph); }
+  notes.scrollTop = 0;
+  document.getElementById('release-download').hidden = !available;
+  document.getElementById('release-error').textContent = '';
+  document.getElementById('release-panel').hidden = false;
+  document.getElementById('update-notification').setAttribute('aria-expanded', 'true');
+}
+function closeReleaseNotes() {
+  document.getElementById('release-panel').hidden = true;
+  document.getElementById('update-notification').setAttribute('aria-expanded', 'false');
+}
+async function showCurrentRelease() {
+  try {
+    const result = await window.api.getCurrentRelease({ nickname: activeUser?.nickname, language: document.documentElement.lang });
+    if (result.success) showReleaseNotes({ ...result.release, local: true }, false);
+  } catch { renderUpdateStatus({ state: 'error' }); }
+}
+function notifyNewRelease() {
+  const release = launcherUpdateState.release;
+  if (launcherUpdateState.state === 'available' && activeUser && !document.hidden && !launchActive && release.version !== notifiedReleaseVersion) {
+    notifiedReleaseVersion = release.version; showReleaseNotes(release, true);
+  }
+}
+async function checkUpdates(automatic = false) {
+  if (updateCheckPending) return updateCheckPending;
+  const button = document.getElementById('check-updates'); button.disabled = true;
+  renderUpdateStatus({ state: 'checking' });
+  updateCheckPending = (async () => {
+    try {
+      const result = await window.api.checkForUpdates();
+      renderUpdateStatus(result);
+      if (automatic) notifyNewRelease();
+      else if (result.state === 'available') showReleaseNotes(result.release, true);
+    } catch { renderUpdateStatus({ state: 'error' }); }
+    finally { lastUpdateCheck = Date.now(); button.disabled = false; updateCheckPending = null; }
+  })();
+  return updateCheckPending;
+}
+function startUpdateChecks() {
+  if (updateCheckTimer) return;
+  void checkUpdates(true);
+  updateCheckTimer = window.setInterval(() => { if (activeUser && !document.hidden) void checkUpdates(true); }, 30 * 60 * 1000);
+}
+async function openUpdateRelease() {
+  const button = document.getElementById('release-download');
+  button.disabled = true;
+  installUpdateButton.disabled = true;
+  try {
+    const result = await window.api.installUpdate();
+    if (!result.success) throw new Error('Release unavailable');
+    document.getElementById('release-error').textContent = '';
+  } catch {
+    if (launcherUpdateState.release) showReleaseNotes(launcherUpdateState.release, true);
+    document.getElementById('release-error').textContent = 'Не удалось открыть релиз. Повторите проверку обновлений.';
+  } finally { button.disabled = false; installUpdateButton.disabled = false; }
 }
 
 async function exportDiagnostics() {
@@ -3834,6 +3952,7 @@ activeUserLabel?.addEventListener('keydown', (event) => {
   }
 });
 document.getElementById('logout-button').addEventListener('click', async () => {
+  closeReleaseNotes();
   await cancelSpotifyConnection();
   await window.api.logout({ sessionToken: activeUser?.sessionToken });
   stopSpotifyRefresh();
@@ -4088,8 +4207,18 @@ document.getElementById('connect-spotify').addEventListener('click', connectSpot
 document.getElementById('cancel-spotify').addEventListener('click', cancelSpotifyConnection);
 document.getElementById('disconnect-spotify').addEventListener('click', disconnectSpotify);
 document.getElementById('refresh-spotify').addEventListener('click', refreshSpotifyNowPlaying);
-document.getElementById('check-updates')?.addEventListener('click', checkUpdates);
-document.getElementById('install-update')?.addEventListener('click', () => window.api.installUpdate());
+document.getElementById('check-updates')?.addEventListener('click', () => checkUpdates());
+document.getElementById('show-current-release').addEventListener('click', showCurrentRelease);
+document.getElementById('update-notification').addEventListener('click', () => { if (launcherUpdateState.release) showReleaseNotes(launcherUpdateState.release, true); });
+document.getElementById('close-release-panel').addEventListener('click', closeReleaseNotes);
+document.getElementById('release-download').addEventListener('click', openUpdateRelease);
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeReleaseNotes(); });
+window.addEventListener('focus', () => {
+  if (!activeUser) return;
+  if (Date.now() - lastUpdateCheck >= 30 * 60 * 1000) void checkUpdates(true);
+  else notifyNewRelease();
+});
+document.getElementById('install-update')?.addEventListener('click', openUpdateRelease);
 document.getElementById('open-logs')?.addEventListener('click', () => window.api.openLogsFolder());
 document.getElementById('open-launch-logs')?.addEventListener('click', () => window.api.openLogsFolder());
 for (const [id, type] of [['home-instance-content', 'mods'], ['home-instance-worlds', 'worlds']]) {
@@ -4099,15 +4228,19 @@ for (const [id, type] of [['home-instance-content', 'mods'], ['home-instance-wor
     else setLauncherSection('library');
   });
 }
-document.getElementById('home-instance-files')?.addEventListener('click', () => {
+document.getElementById('home-instance-files')?.addEventListener('click', async () => {
   const instance = getActiveBuildInstance();
-  if (instance) void window.api.openGameContentFolder({ nickname: activeUser?.nickname, instanceId: instance.id, type: 'instance' });
-  else setLauncherSection('library');
+  if (!instance) { setLauncherSection('library'); return; }
+  try {
+    const result = await window.api.openGameContentFolder({ nickname: activeUser?.nickname, instanceId: instance.id, type: 'instance' });
+    if (!result.success) appendLog({ level: 'error', message: result.error || 'Не удалось открыть папку сборки.' });
+  } catch (error) { appendLog({ level: 'error', message: error.message }); }
 });
-document.getElementById('home-instance-logs')?.addEventListener('click', () => {
-  launchLog.closest('.log-panel')?.scrollIntoView({ block: 'nearest' });
-  launchLog.tabIndex = 0;
-  launchLog.focus({ preventScroll: true });
+document.getElementById('home-instance-logs')?.addEventListener('click', async () => {
+  try {
+    const result = await window.api.openLogsFolder();
+    if (!result.success) appendLog({ level: 'error', message: result.error || 'Не удалось открыть папку логов.' });
+  } catch (error) { appendLog({ level: 'error', message: error.message }); }
 });
 async function refreshGameStorage() {
   try {
@@ -4151,7 +4284,12 @@ contentManagerList?.addEventListener('click', async event => {
 document.getElementById('account-switch')?.addEventListener('change', async (event) => { await cancelSpotifyConnection(); const result = await window.api.switchAccount({ sessionToken: event.target.value }); if (result.success) await enterLauncher(result.user); });
 document.getElementById('add-account')?.addEventListener('click', () => { launcherScreen.classList.add('hidden'); authScreen.classList.remove('hidden'); setAuthMode('login'); });
 launchButton.addEventListener('click', launchMinecraft);
-document.getElementById('clear-log').addEventListener('click', () => { launchLog.textContent = ''; });
+document.getElementById('clear-log').addEventListener('click', () => { launchLogEntries.length = 0; renderLaunchLog(); });
+document.querySelectorAll('[data-log-level]').forEach(input => input.addEventListener('change', () => {
+  if (input.checked) visibleLogLevels.add(input.dataset.logLevel);
+  else visibleLogLevels.delete(input.dataset.logLevel);
+  renderLaunchLog();
+}));
 
 fields.memoryMax.addEventListener('input', updateMemoryLabels);
 fields.profileMemoryMax?.addEventListener('change', async () => { const id = fields.buildProfile?.value || 'normal'; const value = Math.max(1024, Number(fields.profileMemoryMax.value) || 4096); currentSettings.memoryProfiles = { ...(currentSettings.memoryProfiles || {}), [id]: value }; fields.memoryMax.value = value; updateMemoryLabels(); await saveSettings({ memoryProfiles: currentSettings.memoryProfiles }); });
@@ -4229,11 +4367,11 @@ window.api.onLaunchProgress((data) => {
 });
 
 window.api.onLaunchLog(appendLog);
-window.api.onLaunchDebug((data) => appendLog(`[debug] ${data}`));
+window.api.onLaunchDebug((data) => appendLog(data, 'debug'));
 window.api.onLaunchError((error) => {
   const text = String(error || '').trim();
   launchStatus.textContent = text || 'Ошибка процесса Minecraft';
-  appendLog(`[error] ${text}`);
+  appendLog({ level: 'error', message: text });
 });
 window.api.onLaunchStarted?.(() => {
   setLaunchActive(true, true);
@@ -4241,7 +4379,6 @@ window.api.onLaunchStarted?.(() => {
 });
 window.api.onLaunchClosed((code) => {
   launchStatus.textContent = `Minecraft завершился с кодом ${code}`;
-  appendLog(`Процесс завершён. Код: ${code}`);
   setLaunchActive(false);
 });
 window.api.onWindowMaximizedState(setWindowMaximizeButton);

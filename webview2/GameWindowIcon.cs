@@ -4,17 +4,17 @@ using System.Runtime.InteropServices;
 
 namespace UniqueLauncher.WebView2;
 
-/// <summary>Brands only the Java process launched by this launcher, never other Java windows.</summary>
+/// <summary>Brands only the Java or Horizon process launched by this launcher.</summary>
 internal static class GameWindowIcon
 {
-    public static async Task ApplyAsync(int pid, string iconPath, CancellationToken shutdown)
+    public static async Task ApplyAsync(int pid, string iconPath, CancellationToken shutdown, bool horizon = false)
     {
         if (pid <= 0) return;
         try
         {
             using var game = Process.GetProcessById(pid);
-            if (!game.ProcessName.Equals("java", StringComparison.OrdinalIgnoreCase)
-                && !game.ProcessName.Equals("javaw", StringComparison.OrdinalIgnoreCase)) return;
+            if (horizon ? !game.ProcessName.Equals("horizon-client", StringComparison.OrdinalIgnoreCase)
+                : !game.ProcessName.Equals("java", StringComparison.OrdinalIgnoreCase) && !game.ProcessName.Equals("javaw", StringComparison.OrdinalIgnoreCase)) return;
             using var small = new Icon(iconPath, 16, 16);
             using var large = new Icon(iconPath, 48, 48);
             var branded = new HashSet<IntPtr>();

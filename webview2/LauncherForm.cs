@@ -456,7 +456,7 @@ public sealed class LauncherForm : Form
                     var channel = document.RootElement.GetProperty("channel").GetString();
                     var data = document.RootElement.GetProperty("data").Clone();
                     if (channel == "launch-started" && data.ValueKind == JsonValueKind.Object && data.TryGetProperty("pid", out var pidValue) && pidValue.TryGetInt32(out var gamePid))
-                        TrackGameIcon(gamePid, token);
+                        TrackGameIcon(gamePid, token, data.TryGetProperty("engine", out var engine) && engine.GetString() == "horizon");
                     if (channel != "window-control" || !HandleBackendWindowControl(data))
                         PostToWebView(new { type = "event", channel, data });
                     lastId = nextId;
@@ -468,16 +468,16 @@ public sealed class LauncherForm : Form
         }
     }
 
-    private void TrackGameIcon(int pid, CancellationToken token)
+    private void TrackGameIcon(int pid, CancellationToken token, bool horizon = false)
     {
         lock (iconProcesses) { if (!iconProcesses.Add(pid)) return; }
         _ = Task.Run(async () =>
         {
             try
             {
-                var icon = FindFile("game.ico");
+                var icon = horizon ? FindFile("launcher.ico") ?? FindFile("unique иконка.ico") : FindFile("game.ico");
                 if (icon is null) NativeDiagnostics.Write("Game icon", "game.ico was not found");
-                else await GameWindowIcon.ApplyAsync(pid, icon, token);
+                else await GameWindowIcon.ApplyAsync(pid, icon, token, horizon);
             }
             finally { lock (iconProcesses) iconProcesses.Remove(pid); }
         });

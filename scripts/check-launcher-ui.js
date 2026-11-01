@@ -22,6 +22,10 @@ const assert = require('node:assert/strict');
   let spotifyPendingReply;
   const spotifyCalls = [];
   const windowActions = [];
+  const folderCalls = [];
+  let folderError = '';
+  let updateReply = { success: true, state: 'none', currentVersion: '1.0.0' };
+  let updateCalls = 0, updateDownloads = 0, updateDownloadFails = false;
   let browser;
   const errors = [];
   backend.stderr.resume();
@@ -41,6 +45,8 @@ const assert = require('node:assert/strict');
       await page.exposeFunction('nativeInvoke', async text => {
         const message = JSON.parse(text);
         const reply = result => page.evaluate(({ id, result }) => window.__uniqueDispatch({ type: 'invoke-result', id, ok: true, result }), { id: message.id, result });
+        if (message.channel === 'updates-check') { updateCalls++; return reply(updateReply); }
+        if (message.channel === 'updates-install') { updateDownloads++; return reply({ success: !updateDownloadFails }); }
         if (message.channel === 'open-external-url') {
           authorization = message.payload;
           if (spotifyUiMode) spotifyCalls.push('open');
@@ -59,6 +65,10 @@ const assert = require('node:assert/strict');
         }
         if (spotifyUiMode && message.channel === 'spotify-now-playing') return reply({ success: true, nowPlaying: { connected: true, playing: false, text: 'Spotify подключен, сейчас ничего не играет.' } });
         if (message.channel === 'window-control') { windowActions.push(message.payload); return reply(true); }
+        if (['open-game-content-folder', 'open-logs-folder'].includes(message.channel)) {
+          folderCalls.push({ channel: message.channel, payload: message.payload });
+          return reply(folderError ? { success: false, error: folderError } : { success: true });
+        }
         if (message.channel === 'auth-current-session') return reply({ success: false });
         if (message.channel === 'window-is-maximized') return reply(true);
         if (message.channel === 'get-hardware-info') return reply({ totalMemoryMb: 8192 });
@@ -80,6 +90,9 @@ const assert = require('node:assert/strict');
       await page.locator('#startup-screen').waitFor({ state: 'hidden' });
     }
     await authPage();
+    assert(await page.locator('.titlebar-account-actions').isHidden(), 'account controls stay hidden before login');
+    const sky = await page.locator('.space-canvas').evaluate(canvas => canvas.toDataURL());
+    await page.waitForFunction(previous => document.querySelector('.space-canvas').toDataURL() !== previous, sky);
     await page.screenshot({path:'.tools/qa-auth.png', animations:'disabled'});
     await page.fill('#guest-nick', 'OfflineBrowser');
     const before = Date.now();
@@ -93,6 +106,55 @@ const assert = require('node:assert/strict');
     }));
     assert.deepEqual(contextMenus, [true, false, true]);
     await page.waitForFunction(() => systemInfo && currentSettings);
+    await page.waitForFunction(() => launcherUpdateState.state === 'none');
+    assert.equal(updateCalls, 1, 'checks automatically after login');
+    assert(await page.locator('#update-notification').isHidden());
+    assert(await page.locator('#release-panel').isHidden());
+    await page.locator('[data-section="settings"]:visible').first().click();
+    await page.click('[data-settings-tab="debug"]');
+    await page.click('#show-current-release');
+    await page.locator('#release-panel').waitFor({ state: 'visible' });
+    assert((await page.locator('#release-notes').textContent()).includes('Первый публичный релиз'));
+    assert(await page.locator('#release-download').isHidden());
+    await page.keyboard.press('Escape');
+    updateReply = { success: true, state: 'available', currentVersion: '1.0.0', release: { version: '1.1.0', title: 'UNIQUE Launcher 1.1.0', notes: '## New features\n- Updates\n<img src=x onerror="window.qaUnsafe=true">', url: 'https://github.com/trembl-gg/Unique_Launcher/releases/tag/v1.1.0' } };
+    await page.evaluate(() => checkUpdates(true));
+    await page.locator('#release-panel').waitFor({ state: 'visible' });
+    assert(await page.locator('#update-notification').isVisible());
+    assert.equal(await page.locator('#release-notes img, #release-notes script').count(), 0);
+    assert.equal(await page.evaluate(() => window.qaUnsafe), undefined);
+    assert((await page.locator('#release-version').textContent()).includes('1.0.0 → 1.1.0'));
+    assert.equal(updateDownloads, 0, 'discovery does not start downloads');
+    for (const width of [960, 1120, 1280]) {
+      await page.setViewportSize({ width, height: width === 1120 ? 720 : 800 });
+      const layout = await page.evaluate(() => {
+        const panel = document.querySelector('#release-panel').getBoundingClientRect();
+        const badge = document.querySelector('#update-notification').getBoundingClientRect();
+        const user = document.querySelector('#active-user').getBoundingClientRect();
+        return panel.right <= innerWidth && panel.bottom <= innerHeight && badge.right <= user.left;
+      });
+      assert(layout, 'update panel and header controls fit');
+      await page.screenshot({ path: `.tools/qa-updates-${width}.png` });
+    }
+    await page.click('#release-download'); assert.equal(updateDownloads, 1);
+    updateDownloadFails = true;
+    await page.click('#release-download');
+    await page.waitForFunction(() => document.querySelector('#release-error').textContent.length > 0);
+    assert(await page.locator('#release-download').isEnabled());
+    updateDownloadFails = false;
+    await page.click('#close-release-panel');
+    await page.evaluate(() => checkUpdates(true));
+    assert(await page.locator('#release-panel').isHidden(), 'same update notification appears only once');
+    await page.click('#update-notification');
+    assert(await page.locator('#release-panel').isVisible());
+    await page.keyboard.press('Escape');
+    for (const result of [{ success: false, state: 'error', errorCode: 'RATE_LIMIT' }, { success: true, state: 'unpublished' }, { success: true, state: 'none' }]) {
+      updateReply = { currentVersion: '1.0.0', ...result };
+      await page.click('#check-updates');
+      await page.waitForFunction(state => launcherUpdateState.state === state, result.state);
+      assert(await page.locator('#check-updates').isEnabled());
+      assert(await page.locator('#update-notification').isHidden());
+    }
     await page.evaluate(() => { systemInfo.snapshotVersions = ['26.3-snapshot-1', '25w01a']; populateMinecraftVersions(); });
     assert.equal(await page.locator('#instance-version option[value="26.3-snapshot-1"]').count(), 0);
     await page.locator('[data-section="settings"]:visible').first().click();
@@ -146,14 +208,83 @@ const assert = require('node:assert/strict');
     assert.equal(await page.inputValue('#instance-editor-name'),'QA Renamed');
     assert(await page.isChecked('#instance-editor-favorite'));
     await page.click('#instance-editor-cancel');
-    for (const width of [960,1280]) {
-      await page.setViewportSize({width,height:800});
+    await page.evaluate(() => {
+      const instance = getActiveBuildInstance(), previousIcon = instance.icon;
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 40;
+      const context = canvas.getContext('2d'); context.fillStyle = '#c084fc'; context.fillRect(10, 10, 20, 20);
+      try {
+        instance.icon = canvas.toDataURL('image/png'); renderInstanceRail(); renderInstanceList();
+        for (const selector of ['.instance-rail-button.active', '.instance-card.active .instance-icon']) {
+          const button = document.querySelector(selector), style = getComputedStyle(button);
+          if (style.backgroundColor !== 'rgba(0, 0, 0, 0)' || style.backgroundImage !== 'none') throw Error(`PNG icon has a background: ${selector}`);
+        }
+      } finally { instance.icon = previousIcon; renderInstanceRail(); renderInstanceList(); }
+    });
+    for (const width of [960,1120,1280]) {
+      await page.setViewportSize({width,height:width === 1120 ? 720 : 800});
       await page.locator('[data-section="main"]:visible').first().click();
       assert.equal(await page.locator('#launch-instance-name').textContent(),'QA Renamed');
+      assert.deepEqual(await page.locator('#server-info .instance-version-tag').allTextContents(), ['Fabric', 'Minecraft 1.20.1']);
+      const homeLayout = await page.evaluate(() => {
+        const hero = document.querySelector('#wallpaper-preview').getBoundingClientRect();
+        const tabs = document.querySelector('.instance-home-tabs').getBoundingClientRect();
+        const controls = document.querySelector('.launch-actions').getBoundingClientRect();
+        return { gap: tabs.top - hero.bottom, bottom: controls.bottom, height: innerHeight };
+      });
+      assert(homeLayout.gap >= 16, `Action row needs breathing room: ${JSON.stringify(homeLayout)}`);
+      assert.equal(homeLayout.bottom, homeLayout.height);
+      assert(await page.locator('.top-nav').isHidden(), 'duplicate launcher header is removed');
+      for (const selector of ['#active-user', '#logout-button']) {
+        assert.equal(await page.locator(selector).evaluate(el => Boolean(el.closest('.window-titlebar'))), true);
+        const bounds = await page.locator(selector).boundingBox();
+        const titlebar = await page.locator('.window-titlebar').boundingBox();
+        assert(bounds.y >= titlebar.y && bounds.y + bounds.height <= titlebar.y + titlebar.height);
+      }
+      const railFits = await page.locator('.instance-rail-button.active').evaluate(button => {
+        const item = button.getBoundingClientRect(), rail = button.parentElement.getBoundingClientRect();
+        const style = getComputedStyle(button), inset = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+        return item.top - inset >= rail.top && item.bottom + inset <= rail.bottom && item.left - inset >= rail.left && item.right + inset <= rail.right;
+      });
+      assert(railFits, 'selected instance outline must fit inside its scrolling container');
+      for (const selector of ['#copy-launch-log', '#home-instance-files', '#home-instance-worlds', '#home-instance-logs', '#add-account']) {
+        assert.equal(await page.locator(selector + ' svg[aria-hidden="true"]').count(), 1);
+      }
+      await page.evaluate(() => { document.querySelector('.dashboard').scrollTop = 10000; });
+      assert.equal(await page.locator('.launch-actions').evaluate(el => el.getBoundingClientRect().bottom), await page.evaluate(() => innerHeight));
+      await page.evaluate(() => { document.querySelector('.dashboard').scrollTop = 0; });
       for (const selector of ['#home-mods-panel','#open-profile-card','.launch-insights','#open-build-library']) assert(await page.locator(selector).isHidden());
       assert(await page.locator('#account-switch').count());
       assert(await page.locator('#open-launch-logs').isVisible());
+      await page.click('#home-instance-files');
+      await page.click('#home-instance-logs');
+      assert.equal(folderCalls.at(-2).channel, 'open-game-content-folder');
+      assert.equal(folderCalls.at(-2).payload.instanceId, await page.evaluate(() => getActiveBuildInstance().id));
+      assert.equal(folderCalls.at(-2).payload.type, 'instance');
+      assert.equal(folderCalls.at(-1).channel, 'open-logs-folder');
+      await page.evaluate(() => {
+        launchLogEntries.length = 0;
+        appendLog({ level: 'info', message: 'LOG INFO' });
+        appendLog({ level: 'debug', message: 'LOG DEBUG' });
+        appendLog({ level: 'warn', message: 'LOG WARNING' });
+        appendLog('Ошибка: LOG ERROR');
+        appendLog('[lifecycle] {"event":"stage"}');
+        appendLog({ level: 'error', message: '<img src=x onerror=alert(1)>' });
+      });
+      assert(!(await page.locator('#launch-log').textContent()).includes('LOG DEBUG'));
+      assert(!(await page.locator('#launch-log').textContent()).includes('[lifecycle]'));
+      assert.equal(await page.locator('#launch-log img').count(), 0);
+      assert((await page.locator('#launch-log .log-error').first().textContent()).includes('LOG ERROR'));
+      await page.check('[data-log-level="debug"]');
+      assert((await page.locator('#launch-log').textContent()).includes('LOG DEBUG'));
+      await page.uncheck('[data-log-level="debug"]');
+      folderError = 'QA folder access denied';
+      await page.click('#home-instance-files');
+      await page.waitForFunction(() => document.querySelector('#launch-log').textContent.includes('QA folder access denied'));
+      folderError = '';
       await page.screenshot({path:'.tools/qa-home-'+width+'.png'});
+      await page.click('#clear-log');
+      assert.equal(await page.locator('#launch-log').textContent(), '');
+      if (width === 1280) await page.screenshot({ path: '.tools/qa-home-final.png' });
       const logout = page.locator('#logout-button');
       const collapsedWidth = (await logout.boundingBox()).width;
       assert.equal(collapsedWidth, 38);
@@ -232,6 +363,11 @@ const assert = require('node:assert/strict');
       await page.click('[data-settings-tab="game"]');
       await page.evaluate(language => { fields.language.value = language; fields.language.dispatchEvent(new Event('change')); }, language);
       await page.waitForFunction(language => document.documentElement.lang === language && currentSettings.language === language, language);
+      await page.click('[data-settings-tab="debug"]');
+      await page.click('#show-current-release');
+      await page.waitForFunction(language => document.querySelector('#release-notes').textContent.includes(language === 'en' ? 'First public release' : 'Primera versión pública'), language);
+      await page.screenshot({ path: `.tools/qa-updates-${language}.png` });
+      await page.keyboard.press('Escape');
       const missing = new Set();
       async function collectMissing() {
         const values = await page.evaluate(() => {

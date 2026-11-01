@@ -178,6 +178,12 @@ window.translationPatterns = [
 ];
 for (const [ru, en, es] of [
   ['java из PATH', 'Java from PATH', 'Java de PATH'],
+  ['Уровни журнала', 'Log levels', 'Niveles de registro'],
+  ['Ошибки', 'Errors', 'Errores'],
+  ['Предупреждения', 'Warnings', 'Advertencias'],
+  ['Отладка', 'Debug', 'Depuración'],
+  ['Не удалось открыть папку сборки.', 'Unable to open the instance folder.', 'No se pudo abrir la carpeta de la instancia.'],
+  ['Не удалось открыть папку логов.', 'Unable to open the logs folder.', 'No se pudo abrir la carpeta de registros.'],
   ['Выбрано', 'Selected', 'Seleccionado'],
   ['Для Horizon нужен Microsoft-аккаунт с Minecraft Java Edition.', 'Horizon requires a Microsoft account with Minecraft Java Edition.', 'Horizon requiere una cuenta Microsoft con Minecraft Java Edition.'],
   ['Показывать снапшоты Minecraft', 'Show Minecraft snapshots', 'Mostrar snapshots de Minecraft'],
@@ -193,3 +199,22 @@ Object.assign(window.extraTranslations, {
   'Removing UNIQUE mods': { ru: 'Удаление модов UNIQUE', en: 'Removing UNIQUE mods', es: 'Quitando mods de UNIQUE' },
   'Minecraft did not create a process. See preparation logs for the cause.': { ru: 'Процесс Minecraft не был создан. Причина указана в журнале подготовки.', en: 'Minecraft did not create a process. See preparation logs for the cause.', es: 'Minecraft no creó un proceso. Consulta los registros de preparación.' }
 });
+for (const [ru, en, es] of [
+  ['Обновление', 'Update', 'Actualización'],
+  ['Не удалось открыть релиз. Повторите проверку обновлений.', 'Unable to open the release. Check for updates again.', 'No se pudo abrir la versión. Vuelve a comprobar las actualizaciones.'],
+  ['Доступно обновление', 'Update available', 'Actualización disponible'],
+  ['Что нового', 'What’s new', 'Novedades'],
+  ['Скачать с GitHub', 'Download from GitHub', 'Descargar de GitHub'],
+  ['Проверка GitHub при запуске и каждые 30 минут.', 'Checks GitHub at startup and every 30 minutes.', 'Comprueba GitHub al iniciar y cada 30 minutos.'],
+  ['релиз не опубликован', 'release not published', 'versión sin publicar'],
+  ['доступно', 'available', 'disponible'],
+  ['актуально', 'up to date', 'actualizado'],
+  ['Первый стабильный релиз ещё не опубликован на GitHub.', 'The first stable release has not been published on GitHub yet.', 'La primera versión estable aún no se ha publicado en GitHub.'],
+  ['Доступна новая версия. Посмотрите список изменений и скачайте её с GitHub.', 'A new version is available. Read the changelog and download it from GitHub.', 'Hay una nueva versión. Consulta las novedades y descárgala de GitHub.'],
+  ['GitHub ограничил число запросов. Повторите проверку позже.', 'GitHub’s request limit was reached. Try checking again later.', 'Se alcanzó el límite de solicitudes de GitHub. Inténtalo más tarde.'],
+  ['Не удалось проверить обновления. Проверьте подключение к интернету.', 'Unable to check for updates. Check your internet connection.', 'No se pudieron comprobar las actualizaciones. Revisa tu conexión a internet.'],
+  ['Автор релиза не добавил описание изменений.', 'The release author did not provide a changelog.', 'El autor no incluyó una lista de cambios.'],
+  ['Установлена версия', 'Installed version', 'Versión instalada'],
+  ['Проверяю доступные релизы...', 'Checking available releases...', 'Comprobando versiones disponibles...'],
+  ['Установлена актуальная версия лаунчера.', 'The launcher is up to date.', 'El launcher está actualizado.']
+]) window.extraTranslations[ru] = { ru, en, es };

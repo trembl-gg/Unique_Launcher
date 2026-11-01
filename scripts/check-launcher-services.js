@@ -122,8 +122,11 @@ async function run() {
   let reduced = true, nextFrame = 1, observerCallback;
   const frames = new Map(), listeners = new Map();
   const events = { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) };
-  const document = { ...events, hidden: false, body: { classList: { contains: () => reduced } } };
-  const drawing = new Proxy({}, { get: (target, key) => key.startsWith('create') ? () => ({ addColorStop() {} }) : () => {} });
+  let textureBuilds = 0;
+  const drawing = new Proxy({}, { get: (target, key) => key === 'createImageData' ? (width, height) => {
+    textureBuilds++; return { data: new Uint8ClampedArray(width * height * 4) };
+  } : /Gradient$/.test(key) ? () => ({ addColorStop() {} }) : () => {} });
+  const document = { ...events, hidden: false, body: { classList: { contains: () => reduced } }, createElement: () => ({ getContext: () => drawing }) };
   const browser = { ...events, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1 };
   const sandbox = vm.createContext({ window: browser, document, MutationObserver: class { constructor(cb) { observerCallback = cb; } observe() {} disconnect() {} }, requestAnimationFrame: cb => { const id = nextFrame++; frames.set(id, cb); return id; }, cancelAnimationFrame: id => frames.delete(id) });
   vm.runInContext(fs.readFileSync('renderer/ambient-background.js', 'utf8'), sandbox);
@@ -133,10 +136,40 @@ async function run() {
   assert.equal(frames.size, 0, 'reduced motion draws once, not continuously');
   reduced = false; observerCallback(); frame(200);
   assert.equal(frames.size, 1);
+  frame(240);
+  assert.equal(textureBuilds, 1, 'nebula texture is cached between animation frames');
+  frame(9200);
+  assert.equal(textureBuilds, 1, 'moving glows, stars and meteors reuse the texture');
+  listeners.get('resize')(); frame(280);
+  assert.equal(textureBuilds, 2, 'nebula texture follows window size');
   document.hidden = true; listeners.get('visibilitychange')();
   assert.equal(frames.size, 0, 'hidden canvas does not schedule frames');
   background.dispose();
   assert.equal(listeners.size, 0);
   console.log('PASS: loader dispatch and rules; background stops in hidden/reduced-motion modes and releases listeners');
+  if (require('node:process').platform === 'win32') {
+    const childProcess = require('node:child_process');
+    const originalSpawn = childProcess.spawn;
+    const { createElectronShim } = require('../webview2/electron-shim');
+    const shell = createElectronShim({ root: require('node:process').cwd(), handlers: new Map(), emitEvent() {} }).shell;
+    try {
+      let called = 0;
+      childProcess.spawn = (file, args, options) => {
+        called++;
+        assert.equal(file, 'explorer.exe'); assert.deepEqual(args, [__dirname]);
+        assert.equal(options.windowsHide, true); assert.equal(options.shell, undefined);
+        const child = new EventEmitter(); child.unref = () => {};
+        queueMicrotask(() => child.emit('spawn')); return child;
+      };
+      assert.equal(await shell.openPath(__dirname), '');
+      assert.notEqual(await shell.openPath(require('node:path').join(__dirname, 'not-a-folder')), '');
+      assert.equal(called, 1, 'missing folders are rejected before opening Explorer');
+      childProcess.spawn = () => {
+        const child = new EventEmitter(); queueMicrotask(() => child.emit('error', Error('Explorer unavailable'))); return child;
+      };
+      assert.equal(await shell.openPath(__dirname), 'Explorer unavailable');
+    } finally { childProcess.spawn = originalSpawn; }
+    console.log('PASS: directory opening uses Explorer, validates folders and reports spawn errors');
+  }
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

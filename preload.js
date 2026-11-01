@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
   installJava: () => ipcRenderer.invoke('install-java'),
   rescanJava: () => ipcRenderer.invoke('java-rescan'),
   checkForUpdates: () => ipcRenderer.invoke('updates-check'),
+  getCurrentRelease: (payload) => ipcRenderer.invoke('updates-current-release', payload),
   installUpdate: () => ipcRenderer.invoke('updates-install'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics-get'),
   exportDiagnostics: () => ipcRenderer.invoke('diagnostics-export'),

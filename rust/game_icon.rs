@@ -37,6 +37,7 @@ pub struct GameIcons {
     active: Arc<Mutex<HashSet<u32>>>,
     shutdown: Arc<AtomicBool>,
     icon: PathBuf,
+    launcher_icon: PathBuf,
 }
 impl GameIcons {
     pub fn new(root: &Path) -> Self {
@@ -44,19 +45,21 @@ impl GameIcons {
             active: Default::default(),
             shutdown: Default::default(),
             icon: root.join("game.ico"),
+            launcher_icon: if root.join("launcher.ico").is_file() { root.join("launcher.ico") } else { root.join("unique иконка.ico") },
         }
     }
-    pub fn track(&self, pid: u32) {
+    pub fn track(&self, pid: u32, engine: &str) {
         if pid == 0 || !self.active.lock().unwrap().insert(pid) {
             return;
         }
+        let horizon = engine == "horizon";
         let (active, shutdown, icon) = (
             self.active.clone(),
             self.shutdown.clone(),
-            self.icon.clone(),
+            if horizon { self.launcher_icon.clone() } else { self.icon.clone() },
         );
         thread::spawn(move || {
-            if let Err(error) = watch(pid, &icon, &shutdown) {
+            if let Err(error) = watch(pid, &icon, horizon, &shutdown) {
                 eprintln!("Minecraft icon: {error}");
             }
             active.lock().unwrap().remove(&pid);
@@ -94,7 +97,7 @@ struct State {
     path: String,
 }
 
-fn watch(pid: u32, icon: &Path, shutdown: &AtomicBool) -> windows::core::Result<()> {
+fn watch(pid: u32, icon: &Path, horizon: bool, shutdown: &AtomicBool) -> windows::core::Result<()> {
     unsafe {
         let process = Process(OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
@@ -111,7 +114,8 @@ fn watch(pid: u32, icon: &Path, shutdown: &AtomicBool) -> windows::core::Result<
         )?;
         let executable = String::from_utf16_lossy(&path[..length as usize]);
         if !Path::new(&executable).file_name().is_some_and(|name| {
-            name.eq_ignore_ascii_case("java.exe") || name.eq_ignore_ascii_case("javaw.exe")
+            if horizon { name.eq_ignore_ascii_case("horizon-client.exe") }
+            else { name.eq_ignore_ascii_case("java.exe") || name.eq_ignore_ascii_case("javaw.exe") }
         }) {
             return Ok(());
         }
