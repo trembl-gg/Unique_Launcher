@@ -3600,7 +3600,7 @@ async function ensureSelectedLoaderVersion(root, settings) {
       path,
       os,
       AdmZip,
-      launcher,
+      launcher: getMinecraftLauncher(),
       getJson,
       getText,
       downloadFile,

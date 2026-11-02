@@ -1,3 +1,12 @@
+# UNIQUE Launcher — v1.0.2
+
+Дата: 3 ноября 2026
+
+### Исправлено
+- Устранено падение подготовки Minecraft с ошибкой `Cannot read properties of undefined (reading 'handler')` при первом запуске Vanilla, Fabric, Forge, NeoForge и Quilt.
+- Исправлен поиск NeoForge для версий Minecraft 26.x, включая 26.3. Сохранён подбор загрузчика для Minecraft 1.20.1 и 1.21.x.
+- Добавлены регрессионные проверки подготовки всех пяти загрузчиков и выбора совместимой версии NeoForge.
+
 # UNIQUE Launcher — v1.0.1
 
 Дата: 2 ноября 2026

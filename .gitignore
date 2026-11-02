@@ -94,3 +94,6 @@ coverage/
 TestResults/
 .cache/
 *.rs.bk
+docs/release-1.0.2.md
+CHANGELOG.md
+
