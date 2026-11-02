@@ -66,6 +66,7 @@ impl Backend {
         let log = fs::File::create(log_dir.join("rust-backend.log")).map_err(|e| e.to_string())?;
         let mut command = Command::new(node(root)?);
         command
+            .arg("--optimize-for-size")
             .arg(root.join("webview2/node-backend.js"))
             .current_dir(root)
             .env("UNIQUE_WEBVIEW2_ROOT", root)

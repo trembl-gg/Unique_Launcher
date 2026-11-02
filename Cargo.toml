@@ -1,9 +1,12 @@
 [package]
 name = "unique-launcher"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 publish = false
 build = "rust/build.rs"
+
+[lib]
+path = "rust/lib.rs"
 
 [[bin]]
 name = "unique-launcher"

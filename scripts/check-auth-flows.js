@@ -29,6 +29,20 @@ async function check() {
   assert.equal(disk.get('settings').useUniqueMods, false);
   assert.equal((await handler({}, { nickname: '' })).success, false);
 
+  const switchHandler = backendSource.slice(backendSource.indexOf("ipcMain.handle('auth-account-switch'"), backendSource.indexOf("ipcMain.handle('auth-current-session'"));
+  const selected = { nickname: 'LicensedUser', sessionToken: 'selected', microsoft: true };
+  const presence = { rpcContext: null };
+  const presenceNames = [];
+  Object.assign(context, { listSavedAccounts: () => [selected], getStoredSession: () => disk.get('lastSession'),
+    getDiscordService: () => presence, setLauncherDiscordRpc: nickname => presenceNames.push(nickname) });
+  vm.runInContext(switchHandler, context);
+  assert.equal((await handler({}, { sessionToken: 'missing' })).success, false);
+  assert.equal((await handler({}, { sessionToken: 'selected' })).success, true);
+  assert.deepEqual(presenceNames, ['LicensedUser']);
+  presence.rpcContext = { memoryMax: 2048 };
+  await handler({}, { sessionToken: 'selected' });
+  assert.equal(presenceNames.length, 1, 'account switch must not replace the running game activity');
+
   const source = fs.readFileSync('renderer/renderer.js', 'utf8');
   const enter = source.slice(source.indexOf('async function enterLauncher('), source.indexOf('async function login('));
   const auth = source.slice(source.indexOf('async function guestLogin('), source.indexOf('async function register('));

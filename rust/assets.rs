@@ -38,6 +38,7 @@ pub fn respond(root: &Path, request: Request<Vec<u8>>) -> Response<Cow<'static, 
             Some("js") => "text/javascript; charset=utf-8",
             Some("css") => "text/css; charset=utf-8",
             Some("png") => "image/png",
+            Some("ttf") => "font/ttf",
             _ => return None,
         };
         Some((std::fs::read(file).ok()?, mime))

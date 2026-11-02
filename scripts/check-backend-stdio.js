@@ -57,7 +57,7 @@ async function check() {
     for (const language of ['ru', 'en', 'es']) {
       const notes = await invoke('updates-current-release', { language });
       assert.equal(notes.success, true);
-      assert.equal(notes.release.version, '1.0.0');
+      assert.equal(notes.release.version, require('../package.json').version);
       assert.equal(notes.release.notes, require('../lib/release-notes.json')[language]);
     }
     const accounts = await invoke('auth-accounts-list');

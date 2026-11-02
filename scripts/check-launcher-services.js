@@ -55,9 +55,9 @@ async function run() {
   assert.equal(settings.saveSettings({ memory: { max: Infinity } }).memory.max, Math.min(4096, memoryBudget()));
 
   const activity = new DiscordActivity('UNIQUE LAUNCHER');
-  assert.match(activity.create({ nickname: 'Player', memoryMax: 6144, microsoft: true }).state, /Лицензия Microsoft/);
+  assert.match(activity.create({ nickname: 'Player', memoryMax: 6144, microsoft: true }).state, /Microsoft/);
   assert.match(activity.create({ nickname: 'Player', remote: true }).state, /Офлайн/);
-  assert.equal(activity.create({ memoryMax: 6144 }).details, 'Minecraft через UNIQUE LAUNCHER');
+  assert.equal(activity.create({ memoryMax: 6144 }).details, 'Играет в Minecraft');
   assert.doesNotMatch(activity.create({ nickname: 'Player', microsoft: true, guest: true }).state, /Лицензия/);
   const presence = new DiscordPresence({ clientId: '', launcherName: 'UNIQUE' });
   presence.rpcConnecting = true;
@@ -126,14 +126,17 @@ async function run() {
   const drawing = new Proxy({}, { get: (target, key) => key === 'createImageData' ? (width, height) => {
     textureBuilds++; return { data: new Uint8ClampedArray(width * height * 4) };
   } : /Gradient$/.test(key) ? () => ({ addColorStop() {} }) : () => {} });
-  const document = { ...events, hidden: false, body: { classList: { contains: () => reduced } }, createElement: () => ({ getContext: () => drawing }) };
+  const document = { ...events, hidden: false, body: { dataset: {}, classList: { contains: () => reduced } }, createElement: () => ({ getContext: () => drawing }) };
   const browser = { ...events, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1 };
   const sandbox = vm.createContext({ window: browser, document, MutationObserver: class { constructor(cb) { observerCallback = cb; } observe() {} disconnect() {} }, requestAnimationFrame: cb => { const id = nextFrame++; frames.set(id, cb); return id; }, cancelAnimationFrame: id => frames.delete(id) });
   vm.runInContext(fs.readFileSync('renderer/ambient-background.js', 'utf8'), sandbox);
-  const background = new browser.AmbientBackground({ style: {}, getContext: () => drawing }, () => ['1,2,3', '3,2,1']);
+  const canvas = { style: {}, getContext: () => drawing };
+  const background = new browser.AmbientBackground(canvas, () => ['1,2,3', '3,2,1']);
   const frame = time => { const [id, callback] = frames.entries().next().value; frames.delete(id); callback(time); };
-  background.start(); frame(100);
-  assert.equal(frames.size, 0, 'reduced motion draws once, not continuously');
+  background.start();
+  assert.equal(frames.size, 0, 'reduced motion schedules no canvas frames');
+  assert.equal(canvas.width * canvas.height, 0, 'reduced motion allocates no sky backing store');
+  assert.equal(textureBuilds, 0, 'reduced motion does not generate a nebula');
   reduced = false; observerCallback(); frame(200);
   assert.equal(frames.size, 1);
   frame(240);
@@ -144,6 +147,19 @@ async function run() {
   assert.equal(textureBuilds, 2, 'nebula texture follows window size');
   document.hidden = true; listeners.get('visibilitychange')();
   assert.equal(frames.size, 0, 'hidden canvas does not schedule frames');
+  assert.equal(canvas.width * canvas.height, 0, 'hidden sky releases its backing store');
+  document.hidden = false; browser.innerWidth = 3840; browser.innerHeight = 2160; browser.devicePixelRatio = 2;
+  listeners.get('visibilitychange')(); frame(10000);
+  assert(canvas.width * canvas.height <= 1440000, 'HiDPI sky has a bounded backing store');
+  reduced = true; observerCallback();
+  assert.equal(canvas.width * canvas.height, 0, 'enabling reduced motion releases an already animated sky');
+  assert.equal(frames.size, 0);
+  observerCallback(); listeners.get('resize')();
+  assert.equal(frames.size, 0, 'theme and resize changes cannot restart reduced-motion canvas');
+  reduced = false; observerCallback(); frame(10100);
+  assert(canvas.width * canvas.height > 0, 'disabling reduced motion restores the animated sky');
+  document.body.dataset.windowHidden = 'true'; listeners.get('visibilitychange')();
+  assert.equal(canvas.width * canvas.height, 0, 'native hide releases the sky even before browser visibility updates');
   background.dispose();
   assert.equal(listeners.size, 0);
   console.log('PASS: loader dispatch and rules; background stops in hidden/reduced-motion modes and releases listeners');
@@ -157,7 +173,7 @@ async function run() {
       childProcess.spawn = (file, args, options) => {
         called++;
         assert.equal(file, 'explorer.exe'); assert.deepEqual(args, [__dirname]);
-        assert.equal(options.windowsHide, true); assert.equal(options.shell, undefined);
+          assert.equal(options.windowsHide, false); assert.equal(options.shell, undefined);
         const child = new EventEmitter(); child.unref = () => {};
         queueMicrotask(() => child.emit('spawn')); return child;
       };

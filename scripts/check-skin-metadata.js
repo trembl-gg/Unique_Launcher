@@ -51,6 +51,12 @@ async function run() {
     const metadata = new LocalModMetadata().read(jar, await fs.stat(jar));
     assert.equal(metadata.displayName, 'Friendly Mod');
     assert.match(metadata.iconUrl, /^data:image\/png;base64,/);
+    const largeIcon = Buffer.alloc(120 * 1024); png.copy(largeIcon);
+    zip.updateFile('icon.png', largeIcon); zip.writeZip(jar);
+    const boundedMetadata = new LocalModMetadata(), metadataStat = await fs.stat(jar);
+    for (let i = 0; i < 80; i++) boundedMetadata.read(jar, { ...metadataStat, mtimeMs: i });
+    assert(boundedMetadata.bytes <= 2 * 1024 * 1024);
+    assert(boundedMetadata.cache.size < 16, 'large mod icons are bounded by bytes, not only by item count');
     console.log('PASS: skin account binding, upload failure, album isolation, offline behavior, local JAR names/icons');
     const { ContentImporter } = require('../lib/content-importer');
     let busy = false;

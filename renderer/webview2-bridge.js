@@ -45,6 +45,14 @@
     }
     listeners.get(channel).add(callback);
   }
+  async function openFolder(channel, payload) {
+    const result = await invoke(channel, payload);
+    if (result.success && rustHost) {
+      try { await invoke('open-directory', result.path || result.folder); }
+      catch (error) { return { success: false, error: error.message }; }
+    }
+    return result;
+  }
 
   function isTitlebarDragTarget(target) {
     const element = target instanceof Element ? target : null;
@@ -102,6 +110,7 @@
   });
 
   window.api = {
+    setLowMemoryMode: enabled => rustHost ? invoke('memory-mode', enabled) : Promise.resolve(false),
     onNativeFileDrop: callback => on('native-file-drop', callback),
     onNativeDropError: callback => on('native-drop-error', callback),
     getDroppedPaths: files => invoke('dropped-files', null, files),
@@ -118,7 +127,7 @@
     listGameContent: (payload) => invoke('game-content-list', payload),
     setGameContentEnabled: (payload) => invoke('game-content-set-enabled', payload),
     deleteGameContent: (payload) => invoke('game-content-delete', payload),
-    openGameContentFolder: (payload) => invoke('open-game-content-folder', payload),
+    openGameContentFolder: (payload) => openFolder('open-game-content-folder', payload),
     logout: (payload) => invoke('auth-logout', payload),
     listMods: (payload) => invoke('list-mods', payload),
     listBuildInstances: (payload) => invoke('build-instances-list', payload),
@@ -155,7 +164,7 @@
     finalizeModDeletes: () => invoke('mod-delete-finalize'),
     installBuildProfile: (payload) => invoke('install-build-profile', payload),
     getRegisteredServers: (payload) => invoke('registered-servers', payload),
-    openUserModsFolder: (payload) => invoke('open-user-mods-folder', payload),
+    openUserModsFolder: (payload) => openFolder('open-user-mods-folder', payload),
     installJava: () => invoke('install-java'),
     rescanJava: () => invoke('java-rescan'),
     checkForUpdates: () => invoke('updates-check'),
@@ -165,7 +174,7 @@
     exportDiagnostics: () => invoke('diagnostics-export'),
     analyzeCrash: (payload) => invoke('crash-analyze', payload),
     repairGame: (payload) => invoke('repair-game', payload),
-    openLogsFolder: () => invoke('open-logs-folder'),
+    openLogsFolder: () => openFolder('open-logs-folder'),
     getLauncherContent: () => invoke('launcher-content'),
     checkApiHealth: () => invoke('api-health'),
     copyText: (text) => invoke('clipboard-write', text),
@@ -195,12 +204,16 @@
     isWindowMaximized: () => invoke('window-is-maximized'),
     startWindowDrag: () => invoke('window-drag'),
     onWindowMaximizedState: (callback) => on('window-maximized-state', callback),
+    onWindowVisibility: (callback) => on('window-visibility', callback),
     launchHorizon: (payload) => invoke('launch-horizon', payload),
     launchMinecraft: (payload) => invoke('launch-minecraft', payload),
     getLaunchState: () => invoke('get-launch-state'),
     setStreamerMode: (enabled) => invoke('streamer-mode', enabled),
     stopMinecraft: (payload) => invoke('stop-minecraft', payload),
     onLaunchProgress: (callback) => on('launch-progress', callback),
+    onDownloadProgress: (callback) => on('download-progress', callback),
+    getWallpaperMedia: (payload) => invoke('wallpaper-media', payload),
+    setActivity: (payload) => invoke('activity-set', payload),
     onLaunchLog: (callback) => on('launch-log', callback),
     onLaunchDebug: (callback) => on('launch-debug', callback),
     onLaunchClosed: (callback) => on('launch-closed', callback),

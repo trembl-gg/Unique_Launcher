@@ -219,9 +219,10 @@ function createElectronShim({ handlers, emitEvent, root }) {
         const folder = path.resolve(String(target || ''));
         try {
           if (!fs.statSync(folder).isDirectory()) return 'Folder does not exist.';
+          if (process.env.UNIQUE_BACKEND_TRANSPORT === 'stdio') return '';
           if (process.platform !== 'win32') { openTarget(folder); return ''; }
           return await new Promise(resolve => {
-            const child = childProcess.spawn('explorer.exe', [folder], { detached: true, stdio: 'ignore', windowsHide: true });
+            const child = childProcess.spawn('explorer.exe', [folder], { detached: true, stdio: 'ignore', windowsHide: false });
             child.once('error', error => resolve(error.message));
             child.once('spawn', () => { child.unref(); resolve(''); });
           });

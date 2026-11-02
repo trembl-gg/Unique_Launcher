@@ -30,6 +30,14 @@ pub fn open_external(payload: &Value) -> Result<Value, String> {
     }
     Ok(json!(true))
 }
+pub fn open_directory(payload: &Value) -> Result<Value, String> {
+    let path = payload.as_str().filter(|path| !path.contains('\0')).ok_or("Invalid folder path")?;
+    if !std::path::Path::new(path).is_absolute() || !std::path::Path::new(path).is_dir() { return Err("Folder does not exist.".into()); }
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let result = unsafe { windows::Win32::UI::Shell::ShellExecuteW(None, windows::core::w!("open"), PCWSTR(wide.as_ptr()), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL) };
+    if result.0 as isize <= 32 { return Err(format!("Cannot open folder (Windows error {}).", result.0 as isize)); }
+    Ok(json!(true))
+}
 use std::{
     path::PathBuf,
     process::Child,
@@ -240,6 +248,12 @@ impl Drop for ProcessJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn invalid_folder_paths_are_rejected_before_opening() {
+        for invalid in [json!(null), json!("relative/path"), json!("C:\\missing-unique-folder-qa\\"), json!("C:\\Windows\0hidden")] {
+            assert!(open_directory(&invalid).is_err());
+        }
+    }
     #[test]
     fn browser_urls_preserve_oauth_query_and_reject_other_protocols() {
         let url = "https://login.microsoftonline.com/authorize?client_id=test&state=a_b&code_challenge=123";

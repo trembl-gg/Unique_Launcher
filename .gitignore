@@ -81,10 +81,16 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
 *.tmp
 *.bak
 *.orig
 *.rej
 coverage/
+TestResults/
 .cache/
-CHANGELOG.md
+*.rs.bk

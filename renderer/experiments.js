@@ -66,9 +66,10 @@ class LauncherExperiments {
   }
 
   syncMeter() {
-    const enabled = this.settings.visualizer && !document.hidden;
+    const enabled = this.settings.visualizer && !document.body.classList.contains('reduce-motion') && !document.hidden && document.body.dataset.windowHidden !== 'true';
     this.canvas.classList.toggle('hidden', !enabled);
     if (!enabled) { this.stopMeter(); return; }
+    this.canvas.width = 480; this.canvas.height = 64;
     if (!this.timer) {
       if (!window.api?.getAudioPeak) {
         this.status.textContent = 'Визуализатор доступен в Windows-версии WebView2.';
@@ -105,6 +106,7 @@ class LauncherExperiments {
     window.api?.stopAudioMeter?.().catch(() => {});
     this.samples.fill(0);
     this.canvas.getContext('2d').clearRect(0, 0, 480, 64);
+    this.canvas.width = this.canvas.height = 0;
   }
 }
 

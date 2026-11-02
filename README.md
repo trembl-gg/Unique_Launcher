@@ -55,33 +55,3 @@ npm run check
 ```powershell
 npm run dist
 ```
-
-Для запуска из исходников и сборки требуются Rust stable, Windows C++ Build Tools (MSVC) или MinGW-w64 (GNU), Node.js/npm. Если локальная toolchain находится в `.tools`, скрипты подхватывают её автоматически. .NET для Rust-версии не нужен. У конечного игрока требуется Microsoft Edge WebView2 Runtime (обычно уже установлен в Windows 10/11); Node.js включается в дистрибутив.
-
-`npm run check:rust` проверяет Rust-тесты. `npm run dist:rust` собирает папку `dist/rust`. `npm start` запускает Rust-версию, `npm run start:legacy` — прежнюю C#-оболочку.
-
-## Конфигурация
-
-Чувствительные значения задаются через `.env` или переменные окружения. Файл `.env` не должен попадать в репозиторий.
-
-Основные переменные:
-
-- `PROJECT_SERVER_HOST`
-- `PROJECT_SERVER_PORT`
-- `UNIQUE_DISCORD_CLIENT_ID`
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_REDIRECT_URI` — по умолчанию `http://127.0.0.1:48128/spotify/callback`; тот же адрес нужно добавить в Spotify Dashboard. Для настольной привязки используется PKCE без client secret. Публичный Client ID автоматически включается в сборку, `.env` и секреты — нет.
-- `SPOTIFY_REDIRECT_PORT`
-- `PROJECT_TPS_URL`
-
-## Релиз
-
-Версия приложения задаётся в `package.json` и `Cargo.toml` (сейчас `1.2.7`).
-
-Перед публикацией:
-
-1. Проверить `.env` и локальные ассеты.
-2. Собрать приватные моды/плагины отдельно.
-3. Положить нужные `.jar` в runtime-папки перед упаковкой.
-4. Запустить `npm run check`.
-5. Запустить `npm run dist`.

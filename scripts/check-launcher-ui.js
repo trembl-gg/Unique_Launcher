@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const currentVersion = require('../package.json').version;
 
 (async () => {
   const root = process.cwd();
@@ -22,9 +23,11 @@ const assert = require('node:assert/strict');
   let spotifyPendingReply;
   const spotifyCalls = [];
   const windowActions = [];
+  const memoryModes = [];
   const folderCalls = [];
+  const nativeFolders = [], catalogCalls = [];
   let folderError = '';
-  let updateReply = { success: true, state: 'none', currentVersion: '1.0.0' };
+  let updateReply = { success: true, state: 'none', currentVersion };
   let updateCalls = 0, updateDownloads = 0, updateDownloadFails = false;
   let browser;
   const errors = [];
@@ -65,14 +68,21 @@ const assert = require('node:assert/strict');
         }
         if (spotifyUiMode && message.channel === 'spotify-now-playing') return reply({ success: true, nowPlaying: { connected: true, playing: false, text: 'Spotify подключен, сейчас ничего не играет.' } });
         if (message.channel === 'window-control') { windowActions.push(message.payload); return reply(true); }
+        if (message.channel === 'open-directory') { nativeFolders.push(message.payload); return reply(true); }
+        if (message.channel === 'modrinth-search') {
+          catalogCalls.push(message.payload);
+          const size = message.payload.limit, offset = message.payload.offset || 0;
+          return reply({ success: true, totalHits: 37, projects: Array.from({ length: Math.min(size, 37 - offset) }, (_, index) => ({ id: `qa-${offset + index}`, title: `Project ${offset + index + 1}`, description: 'A useful Minecraft project with a clear description and compatible downloads.', downloads: 123456, latestVersion: '1.20.1', categories: ['fabric'] })) });
+        }
         if (['open-game-content-folder', 'open-logs-folder'].includes(message.channel)) {
           folderCalls.push({ channel: message.channel, payload: message.payload });
-          return reply(folderError ? { success: false, error: folderError } : { success: true });
+          return reply(folderError ? { success: false, error: folderError } : { success: true, path: root });
         }
         if (message.channel === 'auth-current-session') return reply({ success: false });
         if (message.channel === 'window-is-maximized') return reply(true);
         if (message.channel === 'get-hardware-info') return reply({ totalMemoryMb: 8192 });
         if (message.channel === 'streamer-mode') return reply({ success: true, enabled: false });
+        if (message.channel === 'memory-mode') { memoryModes.push(message.payload); return reply(true); }
         backend.stdin.write(text + '\n');
       });
       await page.addInitScript(() => { window.__UNIQUE_RUST__ = true; window.ipc = { postMessage: message => { void window.nativeInvoke(message); } }; });
@@ -82,7 +92,7 @@ const assert = require('node:assert/strict');
         const relative = decodeURIComponent(url.pathname).slice(1);
         if (!relative.startsWith('renderer/') && relative !== 'unique.png') return route.abort();
         const file = path.join(root, relative);
-        const mime = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png' }[path.extname(file)];
+        const mime = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.ttf':'font/ttf' }[path.extname(file)];
         return route.fulfill({ path: file, contentType: mime });
       });
       await page.goto('http://unique.localhost/renderer/index.html');
@@ -114,16 +124,16 @@ const assert = require('node:assert/strict');
     await page.click('[data-settings-tab="debug"]');
     await page.click('#show-current-release');
     await page.locator('#release-panel').waitFor({ state: 'visible' });
-    assert((await page.locator('#release-notes').textContent()).includes('Первый публичный релиз'));
+    assert((await page.locator('#release-notes').textContent()).includes(currentVersion));
     assert(await page.locator('#release-download').isHidden());
     await page.keyboard.press('Escape');
-    updateReply = { success: true, state: 'available', currentVersion: '1.0.0', release: { version: '1.1.0', title: 'UNIQUE Launcher 1.1.0', notes: '## New features\n- Updates\n<img src=x onerror="window.qaUnsafe=true">', url: 'https://github.com/trembl-gg/Unique_Launcher/releases/tag/v1.1.0' } };
+    updateReply = { success: true, state: 'available', currentVersion, release: { version: '1.1.0', title: 'UNIQUE Launcher 1.1.0', notes: '## New features\n- Updates\n<img src=x onerror="window.qaUnsafe=true">', url: 'https://github.com/trembl-gg/Unique_Launcher/releases/tag/v1.1.0' } };
     await page.evaluate(() => checkUpdates(true));
     await page.locator('#release-panel').waitFor({ state: 'visible' });
     assert(await page.locator('#update-notification').isVisible());
     assert.equal(await page.locator('#release-notes img, #release-notes script').count(), 0);
     assert.equal(await page.evaluate(() => window.qaUnsafe), undefined);
-    assert((await page.locator('#release-version').textContent()).includes('1.0.0 → 1.1.0'));
+    assert((await page.locator('#release-version').textContent()).includes(`${currentVersion} → 1.1.0`));
     assert.equal(updateDownloads, 0, 'discovery does not start downloads');
     for (const width of [960, 1120, 1280]) {
       await page.setViewportSize({ width, height: width === 1120 ? 720 : 800 });
@@ -149,7 +159,7 @@ const assert = require('node:assert/strict');
     assert(await page.locator('#release-panel').isVisible());
     await page.keyboard.press('Escape');
     for (const result of [{ success: false, state: 'error', errorCode: 'RATE_LIMIT' }, { success: true, state: 'unpublished' }, { success: true, state: 'none' }]) {
-      updateReply = { currentVersion: '1.0.0', ...result };
+      updateReply = { currentVersion, ...result };
       await page.click('#check-updates');
       await page.waitForFunction(state => launcherUpdateState.state === state, result.state);
       assert(await page.locator('#check-updates').isEnabled());
@@ -181,9 +191,37 @@ const assert = require('node:assert/strict');
       assert.equal(await page.locator('#launcher-screen').getAttribute('data-active-section'),section);
     }
     await page.locator('#rail-open-library').click();
+    assert(await page.locator('#instance-name').isHidden(), 'instance menu must not show the creation form');
+    await page.evaluate(() => selectBuildInstance(''));
+    assert.equal(await page.locator('#launcher-screen').getAttribute('data-active-section'), 'create', 'empty instance picker opens creation');
+    await page.click('#rail-open-library');
+    await page.click('#rail-create-instance');
+    assert.equal(await page.locator('#launcher-screen').getAttribute('data-active-section'), 'create');
+    assert(await page.locator('#instance-list').isHidden(), 'creator must not show installed instances');
+    for (const width of [960, 1120, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: `.tools/qa-instance-create-${width}.png` });
+    }
+    await page.evaluate(async () => {
+      const original = window.api.createBuildInstance;
+      let calls = 0, finish;
+      window.api.createBuildInstance = () => { calls++; return new Promise(resolve => { finish = resolve; }); };
+      try {
+        const pending = createBuildInstance();
+        await createBuildInstance();
+        if (calls !== 1) throw Error('Duplicate create request');
+        finish({ success: false, error: 'QA creation failed' });
+        await pending;
+      } finally { window.api.createBuildInstance = original; }
+    });
+    assert(await page.locator('#create-instance').isEnabled());
+    assert((await page.locator('#create-status-slot').textContent()).includes('QA creation failed'));
     await page.fill('#instance-name','QA Fabric');
-    await page.click('#create-instance');
+    await page.locator('#instance-name').press('Enter');
     await page.waitForFunction(()=>document.querySelector('#instance-list')?.textContent.includes('QA Fabric'));
+    await page.locator('#instance-list').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#launcher-screen').getAttribute('data-active-section'), 'library');
     await page.locator('.instance-content[data-content="worlds"]').first().click();
     await page.waitForFunction(()=>document.querySelector('.installed-mods-panel h3')?.textContent==='Миры сборки');
     await page.click('[data-content-tab="mods"]');
@@ -208,6 +246,108 @@ const assert = require('node:assert/strict');
     assert.equal(await page.inputValue('#instance-editor-name'),'QA Renamed');
     assert(await page.isChecked('#instance-editor-favorite'));
     await page.click('#instance-editor-cancel');
+    assert.equal(await page.locator('[data-select-id="account-switch"] .custom-select-value .switcher-avatar').count(), 1);
+    assert.equal(await page.locator('[data-select-id="account-switch"] .custom-select-value .account-kind path').count(), 1);
+    await page.evaluate(() => { const select = document.querySelector('#account-switch'); select.selectedOptions[0].dataset.microsoft = 'true'; syncCustomSelect(select); });
+    assert.equal(await page.locator('[data-select-id="account-switch"] .custom-select-value svg [fill]').count(), 4);
+    await page.evaluate(() => { const select = document.querySelector('#account-switch'); select.selectedOptions[0].dataset.microsoft = 'false'; syncCustomSelect(select); });
+    await page.evaluate(() => document.fonts.ready);
+    assert(await page.evaluate(() => document.fonts.check('14px Manrope') && document.fonts.check('24px Unbounded')));
+    assert(await page.evaluate(() => [...document.querySelectorAll('input[type="checkbox"]')].every(input => getComputedStyle(input).appearance === 'none')));
+    await page.locator('[data-section="library"]:visible').first().click();
+    await page.click('#rail-create-instance');
+    await page.click('[data-creation-tab="import"]');
+    assert(await page.locator('#import-existing-instance').isVisible());
+    assert(await page.locator('#instance-name').isHidden());
+    await page.screenshot({ path: '.tools/qa-instance-import-1.0.1.png' });
+    await page.click('[data-creation-tab="catalog"]');
+    await page.locator('#modrinth-pack-results .modrinth-card').first().waitFor();
+    await page.locator('#modrinth-pack-results + .catalog-pagination button').last().click();
+    await page.waitForFunction(() => document.querySelector('#modrinth-pack-results strong')?.textContent === 'Project 13');
+    assert.equal(catalogCalls.at(-1).offset, 12);
+    await page.screenshot({ path: '.tools/qa-catalog-pages.png' });
+    await page.fill('#modrinth-pack-search', 'new search'); await page.click('#modrinth-pack-search-button');
+    await page.waitForFunction(() => document.querySelector('#modrinth-pack-results strong')?.textContent === 'Project 1');
+    assert.equal(catalogCalls.at(-1).offset, 0);
+    assert(await page.locator('#modrinth-pack-results + .catalog-pagination button').first().isDisabled());
+    await page.locator('[data-section="main"]:visible').first().click();
+    await page.click('#home-instance-content');
+    for (const type of ['mods', 'resourcepack', 'shader']) {
+      await page.click(`[data-content-tab="${type}"]`);
+      await page.click('#modrinth-mod-search-button');
+      await page.waitForFunction(() => document.querySelector('#modrinth-mod-results strong')?.textContent === 'Project 1');
+      await page.locator('#modrinth-mod-results + .catalog-pagination button').last().click();
+      await page.waitForFunction(() => document.querySelector('#modrinth-mod-results strong')?.textContent === 'Project 17');
+      assert.equal(catalogCalls.at(-1).offset, 16); assert.equal(catalogCalls.at(-1).type, type === 'mods' ? 'mod' : type);
+    }
+    await page.locator('[data-section="main"]:visible').first().click();
+    await page.evaluate(async () => {
+      const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
+      const context = canvas.getContext('2d'); context.fillStyle = '#165267'; context.fillRect(0, 0, 320, 180);
+      const stream = canvas.captureStream(0), recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' }), chunks = [];
+      const recorded = new Promise(resolve => { recorder.ondataavailable = event => chunks.push(event.data); recorder.onstop = resolve; });
+      const started = new Promise(resolve => { recorder.onstart = resolve; }); recorder.start(); await started;
+      for (const color of ['#1e687d', '#21556d', '#1e687d']) { context.fillStyle = color; context.fillRect(0, 0, 320, 180); stream.getVideoTracks()[0].requestFrame(); await new Promise(resolve => setTimeout(resolve, 150)); }
+      recorder.stop(); await recorded; stream.getTracks().forEach(track => track.stop());
+      if (!chunks.reduce((size, chunk) => size + chunk.size, 0)) throw Error('Empty video fixture');
+      const url = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+      window.qaOriginalMedia = window.api.getWallpaperMedia;
+      window.api.getWallpaperMedia = async () => ({ success: true, url, video: true });
+      await setWallpaperPreview('qa.webm');
+    });
+    await page.waitForFunction(() => document.querySelector('#wallpaper-preview video')?.readyState >= 2, null, { timeout: 5000 });
+    await page.locator('[data-section="settings"]:visible').first().click();
+    assert(await page.locator('#wallpaper-preview video').evaluate(video => video.paused));
+    assert(await page.locator('#wallpaper-preview video').evaluate(video => !video.hasAttribute('src')), 'hidden wallpaper releases its decoder');
+    await page.locator('[data-section="main"]:visible').first().click();
+    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused);
+    assert.equal(await page.locator('.wallpaper-video[src]').count(), 1, 'only the visible wallpaper owns a video decoder');
+    await page.evaluate(async () => { fields.reduceMotion.checked = true; await saveSettings(); experiments.configure({ visualizer: true }); });
+    await page.waitForFunction(() => [...document.querySelectorAll('.wallpaper-video')].every(video => !video.hasAttribute('src') && video.poster.startsWith('data:image/jpeg')));
+    assert.equal(await page.locator('#space-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'reduced motion releases the entire sky backing store');
+    assert.equal(await page.locator('#music-visualizer-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'reduced motion releases the visualizer');
+    assert(await page.evaluate(() => !experiments.timer && !playerPreview.animationFrame), 'decorative timers stop');
+    assert.equal(memoryModes.at(-1), true, 'the setting requests low WebView2 memory usage');
+    await page.evaluate(async () => { fields.reduceMotion.checked = false; await saveSettings(); });
+    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused && document.querySelector('#space-canvas').width > 0);
+    await page.evaluate(() => experiments.configure({ visualizer: false }));
+    assert.equal(memoryModes.at(-1), false, 'normal memory behavior returns after disabling the setting');
+    await page.evaluate(() => window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: false }));
+    assert.equal(await page.locator('.wallpaper-video[src]').count(), 0);
+    assert.equal(await page.locator('#space-canvas').evaluate(canvas => canvas.width * canvas.height), 0);
+    await page.evaluate(() => window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: true }));
+    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused && document.querySelector('#space-canvas').width > 0);
+    await page.screenshot({ path: '.tools/qa-video-wallpaper.png' });
+    for (const width of [960, 1120]) {
+      await page.setViewportSize({ width, height: 720 });
+      assert(await page.evaluate(() => {
+        const hero = document.querySelector('#wallpaper-preview').getBoundingClientRect();
+        const title = document.querySelector('#launch-instance-name').getBoundingClientRect();
+        return title.top >= hero.top && title.bottom <= hero.bottom && title.left >= hero.left && title.right <= hero.right;
+      }), 'video wallpaper keeps the instance name inside the hero');
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.evaluate(async () => {
+      const videoUrl = document.querySelector('#wallpaper-preview video').src;
+      window.api.getWallpaperMedia = async () => ({ success: true, url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', video: false });
+      await setWallpaperPreview('qa.gif');
+      if (!document.querySelector('#wallpaper-preview').style.getPropertyValue('--wallpaper').includes('image/gif')) throw Error('GIF wallpaper not applied');
+      applyAppearance({ ...currentSettings.appearance, reduceMotion: true });
+      await updateWallpaperImage();
+      if (!document.querySelector('#wallpaper-preview').style.getPropertyValue('--wallpaper').includes('image/png')) throw Error('Reduced motion must replace GIF wallpaper with a static frame');
+      applyAppearance({ ...currentSettings.appearance, reduceMotion: false });
+      await updateWallpaperImage();
+      if (!document.querySelector('#wallpaper-preview').style.getPropertyValue('--wallpaper').includes('image/gif')) throw Error('GIF wallpaper must return after leaving reduced motion');
+      window.api.getWallpaperMedia = window.qaOriginalMedia;
+      await setWallpaperPreview(null); URL.revokeObjectURL(videoUrl);
+    });
+    assert.equal(await page.locator('.wallpaper-video').count(), 0);
+    await page.evaluate(() => window.__uniqueDispatch({ type: 'event', channel: 'download-progress', data: { id: 'qa', state: 'active', name: 'Minecraft client', received: 2097152, total: 8388608 } }));
+    assert((await page.locator('#download-amount').textContent()).includes('2.0 / 8.0 МБ · 25%'));
+    assert.equal(await page.locator('#download-meter').getAttribute('value'), '25');
+    await page.screenshot({ path: '.tools/qa-download-progress.png' });
+    await page.evaluate(() => renderDownloadProgress({ id: 'qa', state: 'done' }));
+    await page.locator('#download-banner').waitFor({ state: 'hidden' });
     await page.evaluate(() => {
       const instance = getActiveBuildInstance(), previousIcon = instance.icon;
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 40;
@@ -254,13 +394,14 @@ const assert = require('node:assert/strict');
       await page.evaluate(() => { document.querySelector('.dashboard').scrollTop = 0; });
       for (const selector of ['#home-mods-panel','#open-profile-card','.launch-insights','#open-build-library']) assert(await page.locator(selector).isHidden());
       assert(await page.locator('#account-switch').count());
-      assert(await page.locator('#open-launch-logs').isVisible());
+      assert.equal(await page.locator('#open-launch-logs').count(), 0);
       await page.click('#home-instance-files');
       await page.click('#home-instance-logs');
       assert.equal(folderCalls.at(-2).channel, 'open-game-content-folder');
       assert.equal(folderCalls.at(-2).payload.instanceId, await page.evaluate(() => getActiveBuildInstance().id));
       assert.equal(folderCalls.at(-2).payload.type, 'instance');
       assert.equal(folderCalls.at(-1).channel, 'open-logs-folder');
+      assert.equal(nativeFolders.at(-1), root, 'folder launch reaches the Windows host');
       await page.evaluate(() => {
         launchLogEntries.length = 0;
         appendLog({ level: 'info', message: 'LOG INFO' });
@@ -270,6 +411,7 @@ const assert = require('node:assert/strict');
         appendLog('[lifecycle] {"event":"stage"}');
         appendLog({ level: 'error', message: '<img src=x onerror=alert(1)>' });
       });
+      await page.waitForFunction(() => document.querySelector('#launch-log').textContent.includes('LOG ERROR'));
       assert(!(await page.locator('#launch-log').textContent()).includes('LOG DEBUG'));
       assert(!(await page.locator('#launch-log').textContent()).includes('[lifecycle]'));
       assert.equal(await page.locator('#launch-log img').count(), 0);
@@ -327,7 +469,7 @@ const assert = require('node:assert/strict');
     assert.equal(await page.locator('[data-settings-tab="game"]').getAttribute('aria-pressed'), 'true');
     await page.screenshot({path:'.tools/qa-settings.png', animations:'disabled'});
     await page.click('[data-settings-tab="debug"]');
-    assert(await page.locator('#open-logs').isVisible());
+    assert.equal(await page.locator('#open-logs, #open-launch-logs').count(), 0, 'folder shortcuts are consolidated on the home screen');
     await page.screenshot({path:'.tools/qa-diagnostics.png', animations:'disabled'});
     await page.locator('#active-user').click();
     await page.waitForFunction(() => ['active-user-avatar', 'profile-main-avatar'].every(id => { const image = document.getElementById(id); return image.complete && image.naturalWidth > 0; }));
@@ -352,11 +494,34 @@ const assert = require('node:assert/strict');
     assert(await page.locator('#cancel-spotify').isHidden());
     assert(await page.locator('#connect-spotify').isEnabled());
     spotifyUiMode = null;
+    const skySamples = [];
     for (const theme of ['light', 'deep', 'contrast']) {
       await page.evaluate(theme => { document.body.dataset.theme = theme; }, theme);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      skySamples.push(await page.evaluate(() => {
+        const canvas = document.querySelector('#space-canvas'), pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        const rgb = [0, 0, 0]; let count = 0;
+        for (let offset = 0; offset < pixels.length; offset += 512) { for (let c = 0; c < 3; c++) rgb[c] += pixels[offset + c]; count++; }
+        return rgb.map(value => Math.round(value / count * 100) / 100).join(',');
+      }));
       await page.screenshot({path:'.tools/qa-profile-'+theme+'.png', animations:'disabled'});
       assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth));
     }
+    assert.equal(new Set(skySamples).size, 3, 'starfield palette changes with the theme');
+    await page.evaluate(() => {
+      window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: false });
+      const before = launchLog.textContent;
+      for (let i = 0; i < 600; i++) appendLog({ level: 'info', message: `${i}: ` + 'x'.repeat(8192) });
+      if (launchLogEntries.length > 400 || launchLogEntries.reduce((total, entry) => total + entry.message.length, 0) > 256 * 1024) throw Error('Log history exceeded its memory budget');
+      if (launchLog.textContent !== before) throw Error('Hidden log should not allocate new DOM rows');
+      window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: true });
+    });
+    await page.waitForFunction(() => launchLog.textContent.includes('599: '));
+    await page.locator('[data-section="main"]:visible').first().click();
+    await page.click('#clear-log');
+    assert.equal(await page.locator('#player-preview-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'hidden profile releases its canvas');
+    await page.locator('#active-user').click();
+    await page.waitForFunction(() => document.querySelector('#player-preview-canvas').width === 320);
     assert.deepEqual(errors,[]);
     for (const language of ['en', 'es']) {
       await page.locator('[data-section="settings"]:visible').first().click();
@@ -365,7 +530,7 @@ const assert = require('node:assert/strict');
       await page.waitForFunction(language => document.documentElement.lang === language && currentSettings.language === language, language);
       await page.click('[data-settings-tab="debug"]');
       await page.click('#show-current-release');
-      await page.waitForFunction(language => document.querySelector('#release-notes').textContent.includes(language === 'en' ? 'First public release' : 'Primera versión pública'), language);
+      await page.waitForFunction(language => document.querySelector('#release-notes').textContent.includes(language === 'en' ? 'Instances and Discord' : 'Instancias y Discord'), language);
       await page.screenshot({ path: `.tools/qa-updates-${language}.png` });
       await page.keyboard.press('Escape');
       const missing = new Set();
@@ -381,10 +546,10 @@ const assert = require('node:assert/strict');
         values.forEach(value => missing.add(value));
       }
       for (const tab of ['game', 'experiments', 'debug', 'info']) { await page.click(`[data-settings-tab="${tab}"]`); await collectMissing(); }
-      for (const section of ['library', 'profile', 'main']) { await page.locator(section === 'profile' ? '#active-user' : `[data-section="${section}"]:visible`).first().click(); await collectMissing(); }
+      for (const section of ['library', 'create', 'profile', 'main']) { await page.locator(section === 'profile' ? '#active-user' : section === 'create' ? '#rail-create-instance' : `[data-section="${section}"]:visible`).first().click(); await collectMissing(); }
       assert.deepEqual([...missing].filter(value => value !== 'Русский'), [], `Untranslated visible text: ${language}`);
     }
-    console.log('PASS: navigation, settings cleanup, instances, content, logout expansion/red hover, Spotify native browser order, success/error/cancel, offline avatars and all themes');
+    console.log('PASS: navigation, folder bridge, accounts, custom fonts/checkboxes, catalog pagination, GIF/video playback and layout, byte progress, themed starfield, logout and Spotify flows');
   } finally {
     if (browser) await browser.close();
     const exited = new Promise(resolve => backend.once('exit', resolve));

@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="download-banner" class="download-banner" hidden><div class="download-caption"><span id="download-name"></span><span id="download-amount" data-i18n-ignore></span></div><progress id="download-meter" max="100" aria-label="Прогресс загрузки"></progress></div>
   <canvas class="space-canvas" id="space-canvas" aria-hidden="true"></canvas>
   <header class="window-titlebar">
     <div class="window-drag-region">
@@ -79,11 +80,11 @@
         <button class="rail-button active" type="button" data-section="main" aria-label="Home" title="Home">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" /></svg>
         </button>
-        <button class="rail-button" type="button" id="rail-open-library" data-section="library" aria-label="Каталог сборок" title="Каталог сборок">
+        <button class="rail-button" type="button" id="rail-open-library" data-section="library" aria-label="Мои сборки" title="Мои сборки">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
         </button>        <div class="rail-divider" aria-hidden="true"></div>
         <div class="instance-rail" id="instance-rail" aria-label="Мои сборки"></div>
-        <button class="instance-rail-add" id="rail-create-instance" type="button" aria-label="Добавить сборку" title="Добавить сборку">+</button>
+        <button class="instance-rail-add" id="rail-create-instance" data-section="create" type="button" aria-label="Создать сборку" title="Создать сборку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
         <div class="rail-divider rail-divider-bottom" aria-hidden="true"></div>
         <button class="rail-button" type="button" data-section="settings" aria-label="Настройки" title="Настройки">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.5.9-2.2-.6-2.5 4.3 1.6 1.6v1.8l-1.6 1.6 2.5 4.3 2.2-.6 1.5.9.6 2.2h5l.6-2.2 1.5-.9 2.2.6 2.5-4.3-1.6-1.6v-1.8l1.6-1.6-2.5-4.3-2.2.6-1.5-.9-.6-2.2z"/><circle cx="12" cy="12" r="3.5"/></svg>
@@ -276,28 +277,36 @@
 
         <section class="library-panel" data-section-panel="library">
           <div class="view-header">
-            <button class="back-button" type="button" data-section="main">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6" /></svg>
-              Назад
-            </button>
-            <div>
-              <span>Modrinth</span>
-              <h2>Каталог сборок</h2>
-            </div>
+            <button class="back-button" type="button" data-section="main"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6" /></svg>Назад</button>
+            <div><h2>Мои сборки</h2><p class="section-subtitle">Выбирайте сборку, меняйте её настройки и управляйте содержимым.</p></div>
           </div>
+          <section class="panel-section wide">
+            <div class="instance-library-tools">
+              <input id="instance-search" type="search" placeholder="Поиск сборок по названию, версии или загрузчику" aria-label="Поиск сборок" />
+              <select id="instance-sort" aria-label="Порядок сборок"><option value="favorite">Сначала избранные</option><option value="name">По названию</option><option value="newest">Сначала новые</option></select>
+            </div>
+            <div class="instance-list" id="instance-list"></div>
+            <div id="library-status-slot"><p class="hint" id="build-library-status" role="status" aria-live="polite"></p></div>
+          </section>
+        </section>
+
+        <section class="library-panel create-panel" data-section-panel="create">
+          <div class="view-header">
+            <button class="back-button" type="button" data-section="library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6" /></svg>Мои сборки</button>
+            <div><h2>Создать сборку</h2><p class="section-subtitle">Настройте новую сборку или добавьте готовую.</p></div>
+          </div>
+          <nav class="library-tabs" aria-label="Способ создания сборки">
+            <button class="tiny-button active" type="button" data-creation-tab="custom" aria-pressed="true">Новая сборка</button>
+            <button class="tiny-button" type="button" data-creation-tab="import" aria-pressed="false">Импорт</button>
+            <button class="tiny-button" type="button" data-creation-tab="catalog" aria-pressed="false">Найти сборку</button>
+          </nav>
           <div class="library-layout">
-            <section class="panel-section wide">
-              <div class="section-head">
-                <div>
-                  <h3>Мои сборки</h3>
-                  <p class="section-subtitle">Перед первым запуском создай локальную сборку или установи сборку с Modrinth.</p>
-                </div>
-                <button class="tiny-button" id="refresh-instances" type="button">Обновить</button>
-              </div>
-              <div class="instance-create-grid">
+            <section class="panel-section wide" data-creation-panel="custom">
+              <div class="section-head"><div><h3>Новая сборка</h3><p class="section-subtitle">Выберите версию Minecraft и загрузчик. Моды и ресурсы можно добавить после создания.</p></div></div>
+              <form id="instance-create-form" class="instance-create-grid">
                 <label>
                   Название
-                  <input id="instance-name" placeholder="Survival Fabric" />
+                  <input id="instance-name" maxlength="80" placeholder="Survival Fabric" />
                 </label>
                 <label>
                   Версия Minecraft
@@ -313,7 +322,13 @@
                     <option value="vanilla">Vanilla</option>
                   </select>
                 </label>
-                <button class="primary-button" id="create-instance" type="button">Создать сборку</button>
+                <button class="primary-button" id="create-instance" type="submit">Создать сборку</button>
+
+              </form>
+            </section>
+            <section class="panel-section wide hidden" data-creation-panel="import">
+              <div class="section-head"><div><h3>Импорт сборки</h3><p class="section-subtitle">Добавьте папку с игрой, файл .mrpack или сборку по ссылке Modrinth.</p></div></div>
+              <div class="instance-import-actions">
                 <button class="tiny-button" id="import-existing-instance" type="button">Import folder</button>
                 <button class="tiny-button" id="import-mrpack" type="button">Import .mrpack</button>
               </div>
@@ -321,14 +336,9 @@
                 <input id="pack-import-url" type="url" placeholder="https://modrinth.com/modpack/..." aria-label="Ссылка на сборку Modrinth" />
                 <button id="pack-import-url-button" class="tiny-button" type="button">Импорт по ссылке</button>
               </div>
-              <div class="instance-library-tools">
-                <input id="instance-search" type="search" placeholder="Поиск сборок по названию, версии или загрузчику" aria-label="Поиск сборок" />
-                <select id="instance-sort" aria-label="Порядок сборок"><option value="favorite">Сначала избранные</option><option value="name">По названию</option><option value="newest">Сначала новые</option></select>
-              </div>
-              <div class="instance-list" id="instance-list"></div>
-            </section>
 
-            <section class="panel-section wide">
+            </section>
+            <section class="panel-section wide hidden" data-creation-panel="catalog">
               <div class="section-head compact">
                 <h3>Сборки Modrinth</h3>
                 <span id="modrinth-pack-loader-label">Fabric</span>
@@ -356,16 +366,16 @@
               <div class="modrinth-results" id="modrinth-pack-results"></div>
             </section>
 
-            <section class="panel-section">
+            <section class="panel-section hidden" data-creation-panel="catalog">
               <div class="section-head">
                 <h3>Серверные сборки</h3>
                 <button class="tiny-button" id="refresh-server-builds" type="button">Обновить</button>
               </div>
               <input id="server-build-search" placeholder="Поиск по серверу, сборке или версии" />
               <div class="server-build-results" id="server-build-results"></div>
-              <p class="hint" id="build-library-status">Локальные карточки Lite/Normal/Ultra скрыты. Каталог показывает только Modrinth и сборки поддерживаемых серверов.</p>
             </section>
           </div>
+          <div id="create-status-slot"></div>
         </section>
 
         <section class="mods-panel" data-section-panel="mods">
@@ -504,7 +514,7 @@
             <section class="panel-section wide" data-settings-group="game">
               <div class="section-head">
                 <h3>Обои главного меню</h3>
-                <button class="tiny-button choose-action" id="choose-wallpaper" type="button">Выбрать PNG/JPG</button>
+                <button class="tiny-button choose-action" id="choose-wallpaper" type="button">Выбрать фото, GIF или видео</button>
               </div>
               <p class="hint">Обои применяются только в лаунчере. Файлы и ресурс-паки Minecraft не изменяются.</p>
               <p class="file-line" id="wallpaper-name">обои не выбраны</p>
@@ -594,7 +604,6 @@
                 <span>логи</span>
               </div>
               <div class="profile-actions">
-                <button class="tiny-button" id="open-logs" type="button">Открыть логи</button>
                 <button class="tiny-button" id="export-diagnostics" type="button">Собрать ZIP</button>
               </div>
               <p class="hint" id="diagnostics-message">Собирает Java, моды, логи и crash-reports без паролей и токенов.</p>
@@ -682,7 +691,6 @@
           <div class="section-head">
             <h3>Журнал запуска</h3>
             <button class="tiny-button" id="copy-launch-log" type="button">Копировать логи</button>
-            <button class="tiny-button" id="open-launch-logs" type="button">Папка логов</button>
             <button class="tiny-button" id="clear-log" type="button">Очистить</button>
           </div>
           <fieldset class="log-levels" aria-label="Уровни журнала">

@@ -1,4 +1,16 @@
 // Canonical UI text only. Usernames, instance/mod titles and logs are not translated.
+window.extraTranslations ||= {};
+for (const [ru, en, es] of [
+  ['Выбирайте сборку, меняйте её настройки и управляйте содержимым.', 'Choose an instance, change its settings and manage its content.', 'Elige una instancia, cambia sus ajustes y gestiona su contenido.'],
+  ['Настройте новую сборку или добавьте готовую.', 'Set up a new instance or add an existing one.', 'Configura una instancia nueva o añade una existente.'],
+  ['Способ создания сборки', 'Instance creation method', 'Método de creación de instancia'],
+  ['Новая сборка', 'New instance', 'Nueva instancia'],
+  ['Импорт', 'Import', 'Importar'],
+  ['Импорт сборки', 'Import an instance', 'Importar una instancia'],
+  ['Выберите версию Minecraft и загрузчик. Моды и ресурсы можно добавить после создания.', 'Choose a Minecraft version and loader. Add mods and resources after creating the instance.', 'Elige la versión de Minecraft y el cargador. Puedes añadir mods y recursos después de crear la instancia.'],
+  ['Добавьте папку с игрой, файл .mrpack или сборку по ссылке Modrinth.', 'Add a game folder, a .mrpack file or a Modrinth modpack link.', 'Añade una carpeta del juego, un archivo .mrpack o un enlace a un modpack de Modrinth.'],
+  ['Сборок пока нет. Нажмите «Создать сборку» (+) в боковом меню.', 'No instances yet. Select Create instance (+) in the sidebar.', 'Aún no hay instancias. Selecciona Crear instancia (+) en la barra lateral.']
+]) window.extraTranslations[ru] = { ru, en, es };
 for (const [ru, en, es] of [
   ['Клиент Horizon и основные ресурсы Minecraft 26.3 включены в установщик. Звуки и музыка (~377 МБ) скачиваются при первом запуске Rust; затем доступны без повторной загрузки.', 'The installer includes Horizon and core Minecraft 26.3 resources. Sounds and music (~377 MB) download on the first Rust launch and are reused afterwards.', 'El instalador incluye Horizon y los recursos principales de Minecraft 26.3. Los sonidos y la música (~377 MB) se descargan al iniciar Rust por primera vez y se reutilizan después.'],
   ['Настройки сохраняются на устройстве. Запуск Minecraft на Rust включён по умолчанию.', 'Settings are saved on this device. Minecraft on Rust is enabled by default.', 'Los ajustes se guardan en este dispositivo. Minecraft en Rust está activado de forma predeterminada.'],
@@ -201,6 +213,20 @@ Object.assign(window.extraTranslations, {
 });
 for (const [ru, en, es] of [
   ['Обновление', 'Update', 'Actualización'],
+  ['Выбрать фото, GIF или видео', 'Choose image, GIF or video', 'Elegir imagen, GIF o vídeo'],
+  ['Видео не поддерживается. Выберите MP4 (H.264) или WebM.', 'Unsupported video. Choose MP4 (H.264) or WebM.', 'Vídeo no compatible. Elige MP4 (H.264) o WebM.'],
+  ['Не удалось открыть обои.', 'Unable to open the wallpaper.', 'No se pudo abrir el fondo.'],
+  ['Найти сборку', 'Find modpacks', 'Buscar modpacks'],
+  ['Создать или импортировать сборку', 'Create or import an instance', 'Crear o importar una instancia'],
+  ['Страницы результатов', 'Result pages', 'Páginas de resultados'],
+  ['Страница', 'Page', 'Página'],
+  ['Предыдущая', 'Previous', 'Anterior'],
+  ['Следующая', 'Next', 'Siguiente'],
+  ['Прогресс загрузки', 'Download progress', 'Progreso de descarga'],
+  ['Загрузки', 'Downloads', 'Descargas'],
+  ['Загрузка', 'Downloading', 'Descargando'],
+  ['МБ', 'MB', 'MB'],
+  ['Размер уточняется', 'Determining size', 'Calculando tamaño'],
   ['Не удалось открыть релиз. Повторите проверку обновлений.', 'Unable to open the release. Check for updates again.', 'No se pudo abrir la versión. Vuelve a comprobar las actualizaciones.'],
   ['Доступно обновление', 'Update available', 'Actualización disponible'],
   ['Что нового', 'What’s new', 'Novedades'],

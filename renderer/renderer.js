@@ -327,12 +327,21 @@ function getSelectLabel(select) {
   const option = select.options[select.selectedIndex];
   return option?.textContent?.trim() || select.value || 'Выбрать';
 }
+function renderAccountOption(target, option) {
+  if (!option) { target.textContent = ''; return; }
+  const nickname = option.dataset.nickname || option.textContent;
+  const licensed = option.dataset.microsoft === 'true';
+  target.innerHTML = `<img class="switcher-avatar" alt="" /><span class="switcher-name"></span><span class="account-kind" title="${licensed ? 'Microsoft' : 'Offline'}">${licensed ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f25022" d="M2 2h9v9H2z"/><path fill="#7fba00" d="M13 2h9v9h-9z"/><path fill="#00a4ef" d="M2 13h9v9H2z"/><path fill="#ffb900" d="M13 13h9v9h-9z"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4 5-4 13 0 18M12 3c2 3 3 6 3 9M3 3l18 18"/></svg>'}</span>`;
+  target.querySelector('.switcher-name').textContent = nickname;
+  setAvatarImage(target.querySelector('img'), nickname, 40);
+}
 
 function syncCustomSelect(select) {
   const state = customSelects.get(select);
   if (!state) return;
 
   state.value.textContent = getSelectLabel(select);
+  if (select.id === 'account-switch') renderAccountOption(state.value, select.options[select.selectedIndex]);
   state.button.disabled = select.disabled;
   state.wrapper.classList.toggle('is-disabled', select.disabled);
   state.menu.textContent = '';
@@ -346,6 +355,7 @@ function syncCustomSelect(select) {
     item.setAttribute('aria-selected', option.selected ? 'true' : 'false');
     item.classList.toggle('is-selected', option.selected);
     item.textContent = option.textContent || option.value;
+    if (select.id === 'account-switch') renderAccountOption(item, option);
     item.disabled = option.disabled;
     item.addEventListener('click', () => {
       if (option.disabled) return;
@@ -511,9 +521,16 @@ function prepareLauncherSections() {
 }
 
 function setLauncherSection(section = 'main') {
-  const allowed = new Set(['main', 'library', 'mods', 'settings', 'profile']);
+  const allowed = new Set(['main', 'library', 'create', 'mods', 'settings', 'profile']);
   const activeSection = allowed.has(section) ? section : 'main';
   launcherScreen.dataset.activeSection = activeSection;
+  if (activeSection === 'library' || activeSection === 'create') {
+    document.getElementById(activeSection === 'create' ? 'create-status-slot' : 'library-status-slot').append(buildLibraryStatus);
+  }
+  const creatorButton = document.getElementById('rail-create-instance');
+  creatorButton.classList.toggle('active', activeSection === 'create');
+  creatorButton.setAttribute('aria-pressed', String(activeSection === 'create'));
+  if (activeUser) void window.api.setActivity?.({ section: activeSection }).catch(() => {});
   activeUserLabel?.classList.toggle('is-expanded', activeSection === 'profile');
   activeUserLabel?.setAttribute('aria-expanded', activeSection === 'profile' ? 'true' : 'false');
 
@@ -530,8 +547,10 @@ function setLauncherSection(section = 'main') {
   });
 
   if (activeSection === 'profile') {
-    requestAnimationFrame(drawPlayerPreview);
+    void refreshProfilePreviews();
     refreshSpotifyNowPlaying();
+  } else {
+    releasePlayerPreviewAssets();
   }
   if (activeSection === 'mods') {
     refreshContentManager();
@@ -539,6 +558,7 @@ function setLauncherSection(section = 'main') {
   if (activeSection === 'library') {
     renderServerBuildResults();
   }
+  updateWallpaperPlayback();
 }
 
 function setSettingsTab(tab = 'info') {
@@ -556,6 +576,14 @@ function setSettingsTab(tab = 'info') {
   });
   document.querySelector('.settings-panel')?.scrollTo(0, 0);
 }
+function setCreationTab(tab = 'custom') {
+  if (!['custom', 'import', 'catalog'].includes(tab)) tab = 'custom';
+  document.querySelectorAll('[data-creation-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.creationPanel !== tab));
+  document.querySelectorAll('[data-creation-tab]').forEach(button => { const active = button.dataset.creationTab === tab; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
+  if (tab === 'catalog') renderServerBuildResults();
+  if (tab === 'catalog' && !modrinthPackResults.childNodes.length) void searchModrinthPacks();
+}
+document.querySelectorAll('[data-creation-tab]').forEach(button => button.addEventListener('click', () => setCreationTab(button.dataset.creationTab)));
 
 function getCravatarUrl(nickname, size = 96) {
   const safeNickname = encodeURIComponent(String(nickname || 'Steve').trim() || 'Steve');
@@ -953,7 +981,7 @@ function renderInstanceList() {
   if (!instanceList) return;
 
   if (!buildInstances.length) {
-    instanceList.innerHTML = '<div class="empty-row instance-empty">Сборок пока нет. Создай локальную сборку или установи Modrinth pack.</div>';
+    instanceList.innerHTML = '<div class="empty-row instance-empty">Сборок пока нет. Нажмите «Создать сборку» (+) в боковом меню.</div>';
     return;
   }
 
@@ -1125,7 +1153,7 @@ async function loadBuildInstances() {
 
 async function selectBuildInstance(instanceId) {
   if (!instanceId) {
-    setLauncherSection('library');
+    openInstanceCreator();
     return;
   }
 
@@ -1156,30 +1184,37 @@ async function openInstanceContent(instanceId, contentType) {
   await refreshContentManager();
 }
 async function createBuildInstance() {
-  const minecraftVersion = fields.instanceVersion?.value || fields.minecraftVersion?.value || '1.20.1';
-  const loader = fields.instanceLoader?.value || 'fabric';
-  const result = await window.api.createBuildInstance({
-    nickname: activeUser?.nickname || '',
-    name: fields.instanceName?.value || '',
-    minecraftVersion,
-    loader,
-    source: 'custom'
-  });
+  if (createInstanceButton.disabled) return;
+  createInstanceButton.disabled = true;
+  try {
+    const minecraftVersion = fields.instanceVersion?.value || fields.minecraftVersion?.value || '1.20.1';
+    const loader = fields.instanceLoader?.value || 'fabric';
+    const result = await window.api.createBuildInstance({
+      nickname: activeUser?.nickname || '',
+      name: fields.instanceName?.value || '',
+      minecraftVersion,
+      loader,
+      source: 'custom'
+    });
 
-  if (!result.success) {
-    if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Не удалось создать сборку.';
-    return;
-  }
+    if (!result.success) {
+      if (buildLibraryStatus) buildLibraryStatus.textContent = result.error || 'Не удалось создать сборку.';
+      return;
+    }
 
-  currentSettings = result.settings || currentSettings;
-  buildInstances = result.instances || [];
-  if (fields.instanceName) fields.instanceName.value = '';
-  applySettingsToUi();
-  renderActiveInstanceSelect();
-  renderInstanceList();
-  renderInstanceRail();
-  await refreshMods();
-  if (buildLibraryStatus) buildLibraryStatus.textContent = `Сборка ${result.instance?.name || ''} создана и выбрана.`;
+    currentSettings = result.settings || currentSettings;
+    buildInstances = result.instances || [];
+    if (fields.instanceName) fields.instanceName.value = '';
+    applySettingsToUi();
+    renderActiveInstanceSelect();
+    renderInstanceList();
+    renderInstanceRail();
+    if (buildLibraryStatus) buildLibraryStatus.textContent = `Сборка ${result.instance?.name || ''} создана и выбрана.`;
+    if (launcherScreen.dataset.activeSection === 'create') openBuildLibrary();
+    await refreshMods();
+  } catch (error) {
+    buildLibraryStatus.textContent = error.message;
+  } finally { createInstanceButton.disabled = false; }
 }
 
 async function importExistingInstance() {
@@ -1204,6 +1239,7 @@ async function importExistingInstance() {
   renderInstanceRail();
   await refreshMods();
   if (buildLibraryStatus) buildLibraryStatus.textContent = `Imported ${result.instance?.name || folder.name}.`;
+  openBuildLibrary();
 }
 
 async function importMrpack() {
@@ -1240,6 +1276,7 @@ async function importMrpack() {
   });
   await refreshMods();
   if (buildLibraryStatus) buildLibraryStatus.textContent = `Imported ${result.packName || file.name}. Files: ${result.installedCount || 0}.`;
+  openBuildLibrary();
 }
 
 function openBuildLibrary() {
@@ -1247,6 +1284,12 @@ function openBuildLibrary() {
   renderInstanceList();
   renderInstanceRail();
   setLauncherSection('library');
+}
+
+function openInstanceCreator() {
+  setLauncherSection('create');
+  setCreationTab('custom');
+  fields.instanceName?.focus();
 }
 
 function closeBuildLibrary() {
@@ -1304,6 +1347,12 @@ async function loadTitlebarIcon() {
 }
 
 const launchLogEntries = [];
+let launchLogRenderPending = false;
+function queueLaunchLogRender() {
+  if (launchLogRenderPending || launcherHidden()) return;
+  launchLogRenderPending = true;
+  requestAnimationFrame(() => { launchLogRenderPending = false; if (!launcherHidden()) renderLaunchLog(); });
+}
 const visibleLogLevels = new Set(['info', 'warn', 'error']);
 function renderLaunchLog() {
   const follow = launchLog.scrollTop + launchLog.clientHeight >= launchLog.scrollHeight - 32;
@@ -1328,18 +1377,24 @@ function appendLog(value, fallbackLevel = 'info') {
     launchLogEntries.push({ level, message: localizer.value(line.replace(/^\[(?:debug|error|warn|info)\]\s*/i, ''), {}, 'text').slice(0, 8192) });
   }
   launchLogEntries.splice(0, Math.max(0, launchLogEntries.length - 400));
-  renderLaunchLog();
+  let characters = launchLogEntries.reduce((total, entry) => total + entry.message.length, 0);
+  while (characters > 256 * 1024) characters -= launchLogEntries.shift().message.length;
+  queueLaunchLogRender();
 }
 
 async function setImagePreview(img, filePath) {
+  const revision = (Number(img.dataset.previewRevision) || 0) + 1;
+  img.dataset.previewRevision = String(revision);
   img.removeAttribute('src');
   img.classList.remove('visible');
 
   if (!filePath) return;
 
   const result = await window.api.getAssetPreview(filePath);
-  if (result.success && result.preview) {
-    img.src = result.preview;
+  const preview = result.success && result.preview && /\.gif$/i.test(filePath) && document.body.classList.contains('reduce-motion')
+    ? await createWallpaperStill(result.preview).catch(() => '') : result.preview;
+  if (Number(img.dataset.previewRevision) === revision && !launcherHidden() && launcherScreen.dataset.activeSection === 'profile' && result.success && preview) {
+    img.src = preview;
     img.classList.add('visible');
   }
 }
@@ -1352,7 +1407,16 @@ async function loadPreviewImage(filePath) {
 
   return new Promise((resolve) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      if (!document.body.classList.contains('reduce-motion')) { resolve(image); return; }
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 256 / image.naturalWidth, 256 / image.naturalHeight);
+      canvas.width = Math.max(1, Math.floor(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.floor(image.naturalHeight * scale));
+      try { canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height); resolve(canvas); }
+      catch { canvas.width = canvas.height = 0; resolve(null); }
+      finally { image.onload = image.onerror = null; image.removeAttribute('src'); }
+    };
     image.onerror = () => resolve(null);
     image.src = result.preview;
   });
@@ -1396,16 +1460,15 @@ function sampleImageColor(image, x, y, width, height, fallback) {
   const canvas = document.createElement('canvas');
   const sourceWidth = image.naturalWidth || image.width || 64;
   const sourceHeight = image.naturalHeight || image.height || 64;
-  canvas.width = sourceWidth;
-  canvas.height = sourceHeight;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(image, 0, 0, sourceWidth, sourceHeight);
-
   const sx = Math.max(0, Math.min(sourceWidth - 1, Math.floor(x)));
   const sy = Math.max(0, Math.min(sourceHeight - 1, Math.floor(y)));
   const sw = Math.max(1, Math.min(sourceWidth - sx, Math.floor(width)));
   const sh = Math.max(1, Math.min(sourceHeight - sy, Math.floor(height)));
-  const pixels = ctx.getImageData(sx, sy, sw, sh).data;
+  canvas.width = Math.min(32, sw);
+  canvas.height = Math.min(32, sh);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   let r = 0;
   let g = 0;
   let b = 0;
@@ -1524,6 +1587,7 @@ function createOpaqueSkinImage(image) {
 }
 
 function clearPlayerPreviewCropCache() {
+  for (const canvas of playerPreview.cropCache.values()) canvas.width = canvas.height = 0;
   playerPreview.cropCache.clear();
 }
 
@@ -1797,25 +1861,16 @@ function getTextureCrop(texture) {
   const width = Math.max(1, Math.min(Math.round(texture.sw), sourceWidth - sx));
   const height = Math.max(1, Math.min(Math.round(texture.sh), sourceHeight - sy));
   const key = `${getImageId(texture.image)}:${sx}:${sy}:${width}:${height}`;
-  if (texture.animated) {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(texture.image, sx, sy, width, height, 0, 0, width, height);
-    return canvas;
-  }
-
-  if (playerPreview.cropCache.has(key)) {
+  if (!texture.animated && playerPreview.cropCache.has(key)) {
     return playerPreview.cropCache.get(key);
   }
 
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = playerPreview.cropCache.get(key) || document.createElement('canvas');
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
+  if (texture.animated) ctx.clearRect(0, 0, width, height);
   ctx.drawImage(texture.image, sx, sy, width, height, 0, 0, width, height);
   playerPreview.cropCache.set(key, canvas);
   return canvas;
@@ -1912,14 +1967,41 @@ function drawPlayerPreview() {
   }
 }
 
+let previewAssetRevision = 0;
+function releasePlayerPreviewAssets() {
+  previewAssetRevision++;
+  setPlayerPreviewAnimation(false);
+  releaseCapeAnimationSource();
+  playerPreview.skinImage = playerPreview.skinBaseImage = playerPreview.capeImage = null;
+  playerPreview.capeAnimated = false;
+  for (const image of [fields.skinPreview, fields.capePreview]) {
+    if (!image) continue;
+    image.dataset.previewRevision = String((Number(image.dataset.previewRevision) || 0) + 1);
+    image.removeAttribute('src');
+  }
+  if (playerPreviewCanvas) playerPreviewCanvas.width = playerPreviewCanvas.height = 0;
+}
+async function refreshProfilePreviews() {
+  const visible = !launcherHidden() && launcherScreen.dataset.activeSection === 'profile';
+  await Promise.all([
+    setImagePreview(fields.skinPreview, visible ? currentSettings?.skin : null),
+    setImagePreview(fields.capePreview, visible ? currentSettings?.cape : null),
+    refreshPlayerPreviewAssets()
+  ]);
+}
 async function refreshPlayerPreviewAssets() {
-  const capeAnimated = Boolean(currentSettings?.cape && /\.gif$/i.test(currentSettings.cape));
+  if (launcherHidden() || launcherScreen.dataset.activeSection !== 'profile') { releasePlayerPreviewAssets(); return; }
+  const revision = ++previewAssetRevision;
+  const capeAnimated = Boolean(currentSettings?.cape && /\.gif$/i.test(currentSettings.cape) && !document.body.classList.contains('reduce-motion'));
+  setPlayerPreviewAnimation(false);
   releaseCapeAnimationSource();
 
   const [skinImage, capeImage] = await Promise.all([
     loadPreviewImage(currentSettings?.skin),
     capeAnimated ? loadAnimatedPreviewImage(currentSettings?.cape) : loadPreviewImage(currentSettings?.cape)
   ]);
+  if (revision !== previewAssetRevision) { capeImage?.remove(); return; }
+  if (playerPreviewCanvas) { playerPreviewCanvas.width = 320; playerPreviewCanvas.height = 360; }
 
   playerPreview.skinImage = skinImage;
   playerPreview.skinBaseImage = createOpaqueSkinImage(skinImage);
@@ -1943,7 +2025,7 @@ function setPlayerPreviewAnimation(active) {
     playerPreview.animationFrame = null;
   }
 
-  if (!active) {
+  if (!active || document.body.classList.contains('reduce-motion')) {
     clearPlayerPreviewCropCache();
     return;
   }
@@ -1956,7 +2038,6 @@ function setPlayerPreviewAnimation(active) {
     }
 
     if (time - lastDraw > 40) {
-      clearPlayerPreviewCropCache();
       drawPlayerPreview();
       lastDraw = time;
     }
@@ -1965,20 +2046,111 @@ function setPlayerPreviewAnimation(active) {
   playerPreview.animationFrame = requestAnimationFrame(tick);
 }
 
+let wallpaperRequest = 0;
+let wallpaperMedia = null;
+let wallpaperStill = null;
+function createWallpaperStill(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 960 / image.naturalWidth, 540 / image.naturalHeight);
+      canvas.width = Math.max(1, Math.floor(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.floor(image.naturalHeight * scale));
+      try {
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      } catch (error) { reject(error); }
+      finally { canvas.width = canvas.height = 0; image.onload = image.onerror = null; image.removeAttribute('src'); }
+    };
+    image.onerror = () => { image.onload = image.onerror = null; image.removeAttribute('src'); reject(new Error('Wallpaper snapshot failed')); };
+    image.src = source;
+  });
+}
+async function updateWallpaperImage() {
+  const media = wallpaperMedia;
+  if (!media || media.video) return;
+  const reduced = document.body.classList.contains('reduce-motion');
+  const source = reduced ? await (wallpaperStill ||= createWallpaperStill(media.source).catch(() => '')) : media.source;
+  if (media !== wallpaperMedia || reduced !== document.body.classList.contains('reduce-motion')) return;
+  for (const target of [wallpaperPreview, fields.wallpaperCrop].filter(Boolean)) {
+    if (source) target.style.setProperty('--wallpaper', `url("${source}")`);
+    else target.style.removeProperty('--wallpaper');
+  }
+}
+function launcherHidden() { return document.hidden || document.body.dataset.windowHidden === 'true'; }
+window.api.onWindowVisibility?.(visible => {
+  document.body.dataset.windowHidden = String(!visible);
+  document.dispatchEvent(new Event('visibilitychange'));
+});
+function updateWallpaperPlayback() {
+  void updateWallpaperImage();
+  const reduced = document.body.classList.contains('reduce-motion');
+  document.querySelectorAll('.wallpaper-video').forEach(video => {
+    const visible = !launcherHidden() && video.checkVisibility();
+    if (reduced && video.readyState >= 2 && !video.poster) {
+      const still = document.createElement('canvas');
+      const scale = Math.min(1, 640 / video.videoWidth, 360 / video.videoHeight);
+      still.width = Math.max(1, Math.floor(video.videoWidth * scale));
+      still.height = Math.max(1, Math.floor(video.videoHeight * scale));
+      try {
+        still.getContext('2d').drawImage(video, 0, 0, still.width, still.height);
+        const poster = still.toDataURL('image/jpeg', .8);
+        document.querySelectorAll('.wallpaper-video').forEach(other => {
+          if (other.dataset.mediaSrc === video.dataset.mediaSrc) other.poster = poster;
+        });
+      } catch { /* A failed snapshot must still release the video decoder. */ video.dataset.stillFailed = 'true'; }
+      finally { still.width = still.height = 0; }
+    }
+    if (reduced && (video.poster || video.dataset.stillFailed)) {
+      if (video.hasAttribute('src')) { video.pause(); video.removeAttribute('src'); video.load(); }
+      return;
+    }
+    if (visible) {
+      if (!video.hasAttribute('src')) { video.src = video.dataset.mediaSrc; video.load(); }
+      if (reduced) video.pause();
+      else void video.play().catch(() => {});
+    } else if (video.hasAttribute('src')) {
+      video.pause(); video.removeAttribute('src'); video.load();
+    }
+  });
+}
+document.addEventListener('visibilitychange', () => {
+  updateWallpaperPlayback();
+  queueLaunchLogRender();
+  if (launcherHidden()) releasePlayerPreviewAssets();
+  else if (launcherScreen.dataset.activeSection === 'profile') void refreshProfilePreviews();
+});
 async function setWallpaperPreview(filePath) {
+  const request = ++wallpaperRequest;
+  wallpaperMedia = wallpaperStill = null;
   wallpaperPreview.style.removeProperty('--wallpaper');
   wallpaperPreview.classList.remove('has-wallpaper');
+  document.querySelectorAll('.wallpaper-video').forEach(video => { video.pause(); video.removeAttribute('src'); video.load(); video.remove(); });
+  fields.wallpaperCrop?.style.removeProperty('--wallpaper');
 
   if (!filePath) return;
 
-  const result = await window.api.getAssetPreview(filePath);
-  if (result.success && result.preview) {
+  const result = window.api.getWallpaperMedia ? await window.api.getWallpaperMedia({ nickname: activeUser?.nickname }) : await window.api.getAssetPreview(filePath);
+  if (request !== wallpaperRequest) return;
+  const source = result.url || result.preview;
+  if (result.success && source) {
+    wallpaperMedia = { source, video: result.video };
     const position = currentSettings?.wallpaperPosition || { x: 50, y: 50 };
     wallpaperPreview.style.setProperty('--wallpaper-position', `${position.x ?? 50}% ${position.y ?? 50}%`);
-    wallpaperPreview.style.setProperty('--wallpaper', `url("${result.preview}")`);
-    if (fields.wallpaperCrop) { fields.wallpaperCrop.style.setProperty('--wallpaper', `url("${result.preview}")`); fields.wallpaperCrop.style.setProperty('--wallpaper-position', `${position.x ?? 50}% ${position.y ?? 50}%`); }
+    for (const target of [wallpaperPreview, fields.wallpaperCrop].filter(Boolean)) {
+      if (result.video) {
+        const video = document.createElement('video'); video.className = 'wallpaper-video'; video.crossOrigin = 'anonymous'; video.muted = true; video.loop = true; video.playsInline = true; video.preload = 'none'; video.dataset.mediaSrc = source;
+        video.addEventListener('loadeddata', updateWallpaperPlayback);
+        video.addEventListener('error', () => { wallpaperName.textContent = 'Видео не поддерживается. Выберите MP4 (H.264) или WebM.'; }, { once: true });
+        target.prepend(video);
+      } else if (!document.body.classList.contains('reduce-motion')) target.style.setProperty('--wallpaper', `url("${source}")`);
+      target.style.setProperty('--wallpaper-position', `${position.x ?? 50}% ${position.y ?? 50}%`);
+    }
     wallpaperPreview.classList.add('has-wallpaper');
-  }
+    updateWallpaperPlayback();
+  } else if (!result.success) wallpaperName.textContent = result.error || 'Не удалось открыть обои.';
 }
 
 function getAppearanceFromFields() {
@@ -2025,10 +2197,18 @@ function applyAppearance(appearanceOverride = null) {
   } else {
     document.body.dataset.accent = accent || 'violet';
   }
+  const motionChanged = document.body.classList.contains('reduce-motion') !== reduceMotion;
   document.body.classList.toggle('reduce-motion', reduceMotion);
+  if (motionChanged) {
+    void window.api.setLowMemoryMode?.(reduceMotion).catch(() => {});
+    experiments.syncMeter();
+    setPlayerPreviewAnimation(playerPreview.capeAnimated);
+    if (launcherScreen.dataset.activeSection === 'profile' && !launcherHidden()) void refreshProfilePreviews();
+  }
   const styles = getComputedStyle(document.body);
   spaceAccentRgb = styles.getPropertyValue('--accent-rgb').trim() || spaceAccentRgb;
   spaceAccent2Rgb = styles.getPropertyValue('--accent-2-rgb').trim() || spaceAccent2Rgb;
+  updateWallpaperPlayback();
 }
 
 function applySettingsToUi() {
@@ -2149,9 +2329,7 @@ function applyBuildProfileMemory(profileId) {
 async function refreshPreviews() {
   await Promise.all([
     setWallpaperPreview(currentSettings.wallpaper),
-    setImagePreview(fields.skinPreview, currentSettings.skin),
-    setImagePreview(fields.capePreview, currentSettings.cape),
-    refreshPlayerPreviewAssets(),
+    refreshProfilePreviews(),
     refreshUserHeadAvatar()
   ]);
 }
@@ -2760,19 +2938,38 @@ async function loadModrinthTags() {
   return modrinthTags;
 }
 
-let modrinthSearchRevision = 0;
-async function searchModrinthMods() {
+function renderCatalogPagination(container, total, page, limit, search, busy = false) {
+  if (!container) return;
+  let nav = container.nextElementSibling;
+  if (!nav?.classList.contains('catalog-pagination')) { nav = document.createElement('nav'); nav.className = 'catalog-pagination'; container.after(nav); }
+  const pages = Math.max(1, Math.ceil(total / limit));
+  nav.hidden = pages <= 1;
+  nav.setAttribute('aria-label', localizer.value('Страницы результатов', {}, 'text'));
+  nav.replaceChildren();
+  for (const [label, target, disabled] of [['Предыдущая', page - 1, page === 0], ['Следующая', page + 1, page + 1 >= pages]]) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'tiny-button'; button.textContent = label; button.disabled = busy || disabled;
+    button.addEventListener('click', () => { void search(target); container.scrollIntoView({ block: 'start', behavior: 'instant' }); });
+    nav.appendChild(button);
+  }
+  const label = document.createElement('span'); label.textContent = `${localizer.value('Страница', {}, 'text')} ${page + 1} / ${pages}`; nav.firstChild.after(label);
+}
+let modrinthSearchRevision = 0, modrinthPackRevision = 0, modrinthContentRevision = 0;
+async function searchModrinthMods(page = 0) {
+  page = Number.isInteger(page) && page >= 0 ? page : 0;
   const revision = ++modrinthSearchRevision;
   const contentType = activeContentType;
   const instanceId = currentSettings?.activeInstanceId;
   const loader = getSelectedModLoader();
   if (contentType === 'worlds') {
     setStatusText(modrinthModStatus, 'Каталог миров пока не подключён.');
+    renderModrinthProjects(modrinthModResults, []);
+    renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods);
     return;
   }
   if (loader === 'vanilla' && contentType === 'mods') {
     setStatusText(modrinthModStatus, 'Vanilla-сборка не поддерживает установку client mods.', 'error');
     renderModrinthProjects(modrinthModResults, []);
+    renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods);
     return;
   }
   setStatusText(modrinthModStatus, contentType === 'mods' ? 'Ищу моды на Modrinth...' : contentType === 'shader' ? 'Ищу шейдеры на Modrinth...' : 'Ищу текстур-паки на Modrinth...');
@@ -2782,59 +2979,73 @@ async function searchModrinthMods() {
     query: modrinthModSearch?.value || '',
     minecraftVersion: getSelectedMinecraftVersion(),
     loader,
-    limit: 16
+    limit: 16, offset: page * 16
   }); } catch (error) { result = { success: false, error: error.message }; }
   if (revision !== modrinthSearchRevision || contentType !== activeContentType || instanceId !== currentSettings?.activeInstanceId) return;
 
   if (!result.success) {
     setStatusText(modrinthModStatus, result.error || 'Не удалось выполнить поиск Modrinth.', 'error');
     renderModrinthProjects(modrinthModResults, []);
+    renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods);
     return;
   }
 
   renderModrinthProjects(modrinthModResults, result.projects || [], contentType === 'mods' ? 'mod' : contentType);
+  renderCatalogPagination(modrinthModResults, result.totalHits || 0, page, 16, searchModrinthMods);
   setStatusText(modrinthModStatus, `Найдено: ${result.totalHits || result.projects?.length || 0}. Версия: ${getSelectedMinecraftVersion()}.`, 'success');
 }
 
-async function searchModrinthPacks() {
+async function searchModrinthPacks(page = 0) {
+  page = Number.isInteger(page) && page >= 0 ? page : 0;
+  const revision = ++modrinthPackRevision;
   const loader = getSelectedPackLoader();
 
   setStatusText(modrinthPackStatus, 'Ищу сборки на Modrinth...');
-  const result = await window.api.searchModrinth({
+  let result;
+  try { result = await window.api.searchModrinth({
     type: 'modpack',
     query: modrinthPackSearch?.value || '',
     minecraftVersion: getSelectedPackVersion(),
     loader,
-    limit: 12
-  });
+    limit: 12, offset: page * 12
+  }); } catch (error) { result = { success: false, error: error.message }; }
+  if (revision !== modrinthPackRevision) return;
 
   if (!result.success) {
     setStatusText(modrinthPackStatus, result.error || 'Не удалось выполнить поиск сборок Modrinth.', 'error');
     renderModrinthProjects(modrinthPackResults, [], 'modpack');
+    renderCatalogPagination(modrinthPackResults, 0, 0, 12, searchModrinthPacks);
     return;
   }
 
   renderModrinthProjects(modrinthPackResults, result.projects || [], 'modpack');
+  renderCatalogPagination(modrinthPackResults, result.totalHits || 0, page, 12, searchModrinthPacks);
   setStatusText(modrinthPackStatus, `Найдено сборок: ${result.totalHits || result.projects?.length || 0}.`, 'success');
 }
 
-async function searchModrinthContent() {
+async function searchModrinthContent(page = 0) {
+  page = Number.isInteger(page) && page >= 0 ? page : 0;
+  const revision = ++modrinthContentRevision;
   const type = getSelectedContentType();
   setStatusText(modrinthContentStatus, `Searching Modrinth ${formatModrinthProjectType(type)}...`);
-  const result = await window.api.searchModrinth({
+  let result;
+  try { result = await window.api.searchModrinth({
     type,
     query: modrinthContentSearch?.value || '',
     minecraftVersion: getSelectedMinecraftVersion(),
-    limit: 16
-  });
+    limit: 16, offset: page * 16
+  }); } catch (error) { result = { success: false, error: error.message }; }
+  if (revision !== modrinthContentRevision) return;
 
   if (!result.success) {
     setStatusText(modrinthContentStatus, result.error || 'Modrinth content search failed.', 'error');
     renderModrinthProjects(modrinthContentResults, [], type);
+    renderCatalogPagination(modrinthContentResults, 0, 0, 16, searchModrinthContent);
     return;
   }
 
   renderModrinthProjects(modrinthContentResults, result.projects || [], type);
+  renderCatalogPagination(modrinthContentResults, result.totalHits || 0, page, 16, searchModrinthContent);
   setStatusText(modrinthContentStatus, `Found: ${result.totalHits || result.projects?.length || 0}.`, 'success');
 }
 
@@ -2884,6 +3095,7 @@ async function importModrinthByRef(inputRef = '') {
     'success'
   );
   buildLibraryStatus.textContent = `Импортирована сборка ${result.packName || result.project?.title || ref}.`;
+  if (result.instance) openBuildLibrary();
 }
 
 async function installModrinthProject(button) {
@@ -3227,6 +3439,7 @@ async function disconnectSpotify() {
 
 async function refreshSpotifyNowPlaying() {
   if (!activeUser || !currentProfile?.spotifyConnected) return;
+  if (launcherHidden()) return;
   if (spotifyRefreshInFlight) return;
 
   const nickname = activeUser.nickname;
@@ -3268,7 +3481,7 @@ function startSpotifyRefresh() {
   }
 
   spotifyRefreshTimer = setInterval(refreshSpotifyNowPlaying, SPOTIFY_REFRESH_INTERVAL_MS);
-  spotifyProgressTimer = setInterval(renderSpotifyProgress, 1000);
+  spotifyProgressTimer = setInterval(() => { if (!launcherHidden()) renderSpotifyProgress(); }, 1000);
 }
 
 function stopSpotifyRefresh() {
@@ -3377,8 +3590,9 @@ async function refreshAccountSwitcher() {
   const select = document.getElementById('account-switch');
   if (!select || !window.api.listAccounts) return;
   const result = await window.api.listAccounts();
-  select.innerHTML = (result.accounts || []).map((account) => `<option value="${escapeHtml(account.sessionToken)}">${escapeHtml(account.nickname)}${account.microsoft ? ' · Microsoft' : ' · Offline'}</option>`).join('');
+  select.innerHTML = (result.accounts || []).map((account) => `<option value="${escapeHtml(account.sessionToken)}" data-nickname="${escapeHtml(account.nickname)}" data-microsoft="${Boolean(account.microsoft && !account.guest)}">${escapeHtml(account.nickname)}</option>`).join('');
   if (activeUser?.sessionToken) select.value = activeUser.sessionToken;
+  syncCustomSelect(select);
 }
 async function enterLauncher(user) {
   document.getElementById('skin-album').replaceChildren();
@@ -3582,7 +3796,7 @@ async function selectCape() {
 }
 
 async function selectWallpaper() {
-  const file = await window.api.chooseFile({ filters: [{ name: 'Wallpaper', extensions: ['png', 'jpg', 'jpeg'] }] });
+  const file = await window.api.chooseFile({ filters: [{ name: 'Images and video', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm'] }] });
   if (!file) return;
 
   await saveSettings({ wallpaper: file.path, wallpaperPosition: { x: 50, y: 50 } });
@@ -3616,7 +3830,7 @@ async function launchMinecraft() {
   }
 
   if (!buildInstances.length || !currentSettings?.activeInstanceId) {
-    setLauncherSection('library');
+    openInstanceCreator();
     launchStatus.textContent = 'Перед первым запуском создай сборку или установи Modrinth pack.';
     return;
   }
@@ -3932,6 +4146,7 @@ loginTab?.addEventListener('click', () => setAuthMode());
 registerTab?.addEventListener('click', () => setAuthMode());
 guestTab?.addEventListener('click', () => setAuthMode());
 sectionButtons.forEach((button) => {
+  if (button.id === 'rail-create-instance') return;
   button.addEventListener('click', () => setLauncherSection(button.dataset.section));
 });
 settingsTabs.forEach((button) => {
@@ -3981,12 +4196,11 @@ serverRegistryList?.addEventListener('click', (event) => {
 document.getElementById('refresh-api-health')?.addEventListener('click', refreshApiHealth);
 document.getElementById('rescan-java')?.addEventListener('click', rescanJava);
 document.getElementById('open-build-library')?.addEventListener('click', openBuildLibrary);
-document.getElementById('rail-open-library')?.addEventListener('click', openBuildLibrary);
 document.getElementById('close-build-library')?.addEventListener('click', closeBuildLibrary);
 document.getElementById('build-library-backdrop')?.addEventListener('click', closeBuildLibrary);
 document.getElementById('open-profile-card')?.addEventListener('click', () => setLauncherSection('profile'));
 refreshInstancesButton?.addEventListener('click', loadBuildInstances);
-createInstanceButton?.addEventListener('click', createBuildInstance);
+document.getElementById('instance-create-form').addEventListener('submit', event => { event.preventDefault(); void createBuildInstance(); });
 importExistingInstanceButton?.addEventListener('click', importExistingInstance);
 importMrpackButton?.addEventListener('click', importMrpack);
 document.getElementById('pack-import-url-button').addEventListener('click', async event => {
@@ -4049,7 +4263,7 @@ instanceRail?.addEventListener('click', async (event) => {
   if (!button) return;
   await selectBuildInstance(button.dataset.instanceId);
 });
-document.getElementById('rail-create-instance')?.addEventListener('click', openBuildLibrary);
+document.getElementById('rail-create-instance')?.addEventListener('click', openInstanceCreator);
 fields.activeInstance?.addEventListener('change', async () => {
   await selectBuildInstance(fields.activeInstance.value);
 });
@@ -4266,7 +4480,7 @@ document.getElementById('default-game-storage')?.addEventListener('click', () =>
 refreshGameStorage();
 document.getElementById('export-diagnostics')?.addEventListener('click', exportDiagnostics);
 document.getElementById('analyze-crash')?.addEventListener('click', analyzeCrash);
-contentManagerTabs?.addEventListener('click', async (event) => { const button = event.target.closest('[data-content-tab]'); if (!button || launchActive) return; activeContentType = button.dataset.contentTab; modrinthSearchRevision++; if (modrinthModResults) modrinthModResults.innerHTML = ''; await refreshContentManager(); });
+contentManagerTabs?.addEventListener('click', async (event) => { const button = event.target.closest('[data-content-tab]'); if (!button || launchActive) return; activeContentType = button.dataset.contentTab; modrinthSearchRevision++; if (modrinthModResults) modrinthModResults.innerHTML = ''; renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods); await refreshContentManager(); });
 contentManagerList?.addEventListener('click', async event => {
   const button = event.target.closest('[data-content-name]');
   if (!button || launchActive) return;
@@ -4359,7 +4573,31 @@ fields.minecraftVersion.addEventListener('input', () => {
   updateLaunchInsights();
 });
 
+const activeDownloads = new Map();
+let downloadHideTimer;
+function renderDownloadProgress(data) {
+  if (!data) return;
+  const id = data.id || 'minecraft';
+  if (data.state === 'done' || data.state === 'error') activeDownloads.delete(id);
+  else activeDownloads.set(id, data);
+  const banner = document.getElementById('download-banner');
+  clearTimeout(downloadHideTimer);
+  if (!activeDownloads.size) { downloadHideTimer = setTimeout(() => { banner.hidden = true; }, 1200); return; }
+  const items = [...activeDownloads.values()];
+  const known = items.every(item => item.total > 0 && Number.isFinite(item.received));
+  const total = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+  const received = items.reduce((sum, item) => sum + (Number(item.received) || 0), 0);
+  const percent = known ? Math.min(100, Math.floor(received / total * 100)) : items.length === 1 && Number.isFinite(items[0].percent) ? items[0].percent : null;
+  banner.hidden = false;
+  document.getElementById('download-name').textContent = items.length > 1 ? `${localizer.value('Загрузки', {}, 'text')}: ${items.length}` : items[0].name || localizer.value('Загрузка', {}, 'text');
+  document.getElementById('download-amount').textContent = known ? `${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} ${localizer.value('МБ', {}, 'text')} · ${percent}%` : percent == null ? localizer.value('Размер уточняется', {}, 'text') : `${percent}%`;
+  const meter = document.getElementById('download-meter');
+  if (percent == null) meter.removeAttribute('value'); else meter.value = percent;
+  if (percent >= 100) { activeDownloads.delete(id); if (!activeDownloads.size) downloadHideTimer = setTimeout(() => { banner.hidden = true; }, 1200); }
+}
+window.api.onDownloadProgress?.(renderDownloadProgress);
 window.api.onLaunchProgress((data) => {
+  if (data.total > 0 || Number.isFinite(data.percent)) renderDownloadProgress({ ...data, received: data.received });
   if (data?.name) {
     const progress = Number.isFinite(data.percent) ? ` · ${Math.max(0, Math.min(100, Math.round(data.percent)))}%` : '';
     launchStatus.textContent = `Загрузка: ${localizer.value(data.name, {}, 'text')}${progress}`;
@@ -4369,6 +4607,7 @@ window.api.onLaunchProgress((data) => {
 window.api.onLaunchLog(appendLog);
 window.api.onLaunchDebug((data) => appendLog(data, 'debug'));
 window.api.onLaunchError((error) => {
+  renderDownloadProgress({ id: 'minecraft', state: 'error' });
   const text = String(error || '').trim();
   launchStatus.textContent = text || 'Ошибка процесса Minecraft';
   appendLog({ level: 'error', message: text });
@@ -4378,6 +4617,7 @@ window.api.onLaunchStarted?.(() => {
   launchStatus.textContent = 'Minecraft запущен.';
 });
 window.api.onLaunchClosed((code) => {
+  renderDownloadProgress({ id: 'minecraft', state: 'done' });
   launchStatus.textContent = `Minecraft завершился с кодом ${code}`;
   setLaunchActive(false);
 });

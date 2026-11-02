@@ -22,9 +22,9 @@ const extract = (from, to) => source.slice(source.indexOf(from), source.indexOf(
     modrinthModSearch: { value: '' }, modrinthModStatus: status, modrinthModResults: {},
     window: { api: { searchModrinth: () => new Promise(resolve => pending.push(resolve)) } },
     setStatusText: (target, text) => { target.text = text; },
-    renderModrinthProjects: (_, projects) => rendered.push(projects)
+    renderModrinthProjects: (_, projects) => rendered.push(projects), renderCatalogPagination() {}
   });
-  vm.runInContext(extract('let modrinthSearchRevision =', 'async function searchModrinthPacks()'), context);
+  vm.runInContext(extract('let modrinthSearchRevision =', 'async function searchModrinthPacks('), context);
   const old = context.searchModrinthMods(), latest = context.searchModrinthMods();
   pending[1]({success:true,projects:['latest']}); await latest;
   pending[0]({success:true,projects:['stale']}); await old;

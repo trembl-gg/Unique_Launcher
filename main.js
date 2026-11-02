@@ -27,11 +27,22 @@ const localModMetadata = new LocalModMetadata();
 const { RequestCache } = require('./lib/request-cache');
 const modrinthRequestCache = new RequestCache();
 const { DiscordPresence } = require('./lib/discord-presence');
+const { WallpaperMedia } = require('./lib/wallpaper-media');
+const { downloadFile: transferFile } = require('./lib/download-file');
 const http = require('http');
 const https = require('https');
 const Store = require('electron-store');
 const AdmZip = require('adm-zip');
-const launcher = require('minecraft-launcher-core');
+let launcher;
+function getMinecraftLauncher() {
+  if (!launcher) {
+    launcher = require('minecraft-launcher-core');
+    require('./lib/legacy-download-progress').observeLegacyDownloads(require('request'), data => {
+      BrowserWindow.getAllWindows().forEach(window => window.webContents.send('download-progress', data));
+    });
+  }
+  return launcher;
+}
 function loadDotEnv() {
   const envPath = path.join(__dirname, '.env');
   if (!fs.existsSync(envPath)) return;
@@ -776,8 +787,7 @@ function getDiscordButtons(profile) {
   if (socials.length === 1) {
     buttons.push(socials[0]);
   } else if (socials.length > 1) {
-    const socialIndex = Math.floor(Date.now() / 15000) % socials.length;
-    buttons.push(socials[socialIndex]);
+    buttons.push(socials[0]);
   }
 
   return buttons;
@@ -1012,47 +1022,14 @@ function getText(url, timeoutMs = 10000) {
   });
 }
 
-function downloadFile(url, targetPath, onProgress = null) {
-  return new Promise((resolve, reject) => {
-    ensureDir(path.dirname(targetPath));
-    const parsed = new URL(url);
-    const transport = parsed.protocol === 'http:' ? http : https;
-    const tempPath = `${targetPath}.download`;
-    const file = fs.createWriteStream(tempPath);
-    const request = transport.get(url, (response) => {
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        file.close(() => fs.rmSync(tempPath, { force: true }));
-        response.resume();
-        reject(new Error(`HTTP ${response.statusCode}: ${url}`));
-        return;
-      }
-
-      const total = Number(response.headers['content-length'] || 0);
-      let received = 0;
-      response.on('data', (chunk) => {
-        received += chunk.length;
-        if (onProgress) {
-          onProgress({ received, total });
-        }
-      });
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close(() => {
-          fs.rmSync(targetPath, { force: true });
-          fs.renameSync(tempPath, targetPath);
-          resolve(targetPath);
-        });
-      });
-    });
-
-    request.setTimeout(30000, () => {
-      request.destroy(new Error('Download timed out'));
-    });
-    request.on('error', (err) => {
-      file.close(() => fs.rmSync(tempPath, { force: true }));
-      reject(err);
-    });
-  });
+async function downloadFile(url, targetPath, onProgress = null) {
+  const id = crypto.randomUUID();
+  const send = data => BrowserWindow.getAllWindows().forEach(window => window.webContents.send('download-progress', { id, name: path.basename(targetPath), ...data }));
+  send({ state: 'active', received: 0, total: 0 });
+  try {
+    const result = await transferFile(url, targetPath, progress => { onProgress?.(progress); send({ state: 'active', ...progress }); });
+    send({ state: 'done' }); return result;
+  } catch (error) { send({ state: 'error' }); throw error; }
 }
 
 function backupExistingFile(filePath, label = 'rollback') {
@@ -2855,7 +2832,7 @@ function withTimeout(promise, timeoutMs, message) {
 
 let discordPresence;
 function getDiscordService() {
-  return discordPresence ||= new DiscordPresence({ clientId: DISCORD_CLIENT_ID, launcherName: LAUNCHER_NAME, getUserProfile, getDiscordButtons, store, sessionKey: SESSION_KEY, withTimeout });
+  return discordPresence ||= new DiscordPresence({ clientId: DISCORD_CLIENT_ID, launcherName: 'Unique Launcher', getUserProfile, getDiscordButtons, store, sessionKey: SESSION_KEY, withTimeout, getLanguage: nickname => getSettings(nickname).language });
 }
 function disconnectDiscordRpc(...args) { return getDiscordService().disconnectDiscordRpc(...args); }
 function ensureDiscordRpc(...args) { return getDiscordService().ensureDiscordRpc(...args); }
@@ -3995,7 +3972,7 @@ async function completeMicrosoftLogin(flowId) {
 async function getSessionMinecraftAuth(sessionToken, fallbackNickname) {
   const session = activeSessions.get(sessionToken);
   if (!session?.minecraftAuth) {
-    return launcher.authenticator.getAuth(fallbackNickname);
+    return getMinecraftLauncher().authenticator.getAuth(fallbackNickname);
   }
 
   if (session.minecraftAuth.expiresAt && Date.now() > Number(session.minecraftAuth.expiresAt)) {
@@ -4163,6 +4140,7 @@ ipcMain.handle('auth-account-switch', async (event, payload = {}) => {
   if (!account) return { success: false, error: 'Account was not found.' };
   store.set(SESSION_KEY, account);
   activeSessions.set(account.sessionToken, { ...account, createdAt: account.createdAt || Date.now() });
+  if (!getDiscordService().rpcContext?.memoryMax) setLauncherDiscordRpc(account.nickname);
   return { success: true, user: getStoredSession() };
 });
 ipcMain.handle('auth-current-session', async () => {
@@ -5057,8 +5035,8 @@ ipcMain.handle('open-user-mods-folder', async (event, payload = {}) => {
   const minecraftVersion = String(payload.minecraftVersion || getSettings(payload.nickname).minecraftVersion || '1.20.1');
   const folder = getUserModsPath(minecraftVersion);
   ensureDir(folder);
-  await shell.openPath(folder);
-  return { success: true, folder };
+  const error = await shell.openPath(folder);
+  return error ? { success: false, error } : { success: true, folder };
 });
 
 ipcMain.handle('install-java', async () => {
@@ -5179,6 +5157,21 @@ ipcMain.handle('get-asset-preview', async (event, filePath) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+const wallpaperMedia = new WallpaperMedia();
+ipcMain.handle('wallpaper-media', async (_, payload = {}) => {
+  try {
+    const file = getSettings(payload.nickname).wallpaper;
+    if (!file) return { success: true, url: null };
+    return { success: true, ...(await wallpaperMedia.open(file)) };
+  } catch (error) { return { success: false, error: error.message }; }
+});
+ipcMain.handle('activity-set', async (_, payload = {}) => {
+  const service = getDiscordService();
+  const section = ['main', 'library', 'create', 'mods', 'settings', 'profile'].includes(payload.section) ? payload.section : 'main';
+  service.section = section;
+  if (service.rpcContext && !service.rpcContext.memoryMax) service.setLauncherDiscordRpc(service.rpcContext.nickname);
+  return { success: true };
 });
 
 const skinService = new SkinService({
@@ -5529,6 +5522,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
     if (auth?.access_token) gameLogs.secrets.push(auth.access_token);
     launchState.checkpoint();
 
+    const launcher = getMinecraftLauncher();
     launcher.event.removeAllListeners('debug');
     launcher.event.removeAllListeners('data');
     launcher.event.removeAllListeners('download-status');
@@ -5537,7 +5531,7 @@ ipcMain.handle('launch-minecraft', async (event, payload) => {
 
     launcher.event.on('debug', (data) => event.sender.send('launch-debug', gameLogs.write('debug', data)));
     launcher.event.on('data', (data) => event.sender.send('launch-log', gameLogs.write('stdout', data)));
-    launcher.event.on('download-status', (data) => event.sender.send('launch-progress', data));
+    launcher.event.on('download-status', (data) => event.sender.send('launch-progress', { name: data.name }));
     launcher.event.on('close', (code) => {
       launchState.finish(code, launchState.process?.signalCode);
     });
