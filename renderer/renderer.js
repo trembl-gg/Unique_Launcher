@@ -34,7 +34,6 @@ const wallpaperPreview = document.getElementById('wallpaper-preview');
 const wallpaperName = document.getElementById('wallpaper-name');
 const versionLabel = document.getElementById('version-label');
 const launchButton = document.getElementById('launch-button');
-const spaceCanvas = document.getElementById('space-canvas');
 const profileStatus = document.getElementById('profile-status');
 const profileMessage = document.getElementById('profile-message');
 const spotifyStatus = document.getElementById('spotify-status');
@@ -160,6 +159,8 @@ const fields = {
   language: document.getElementById('language-select'),
   accentColor: document.getElementById('accent-color'),
   reduceMotion: document.getElementById('reduce-motion'),
+  starBackground: document.getElementById('star-background'),
+  interfaceTransparency: document.getElementById('interface-transparency'),
   wallpaperCrop: document.getElementById('wallpaper-crop-picker')
 };
 
@@ -187,8 +188,6 @@ let modrinthTags = null;
 let pendingModDeleteTimers = new Map();
 let registeredServers = [];
 let avatarRenderRequest = 0;
-let spaceAccentRgb = '124, 58, 237';
-let spaceAccent2Rgb = '167, 139, 250';
 const SPOTIFY_REFRESH_INTERVAL_MS = 2500;
 const SERVER_REGISTRY_REFRESH_INTERVAL_MS = 60000;
 const API_HEALTH_REFRESH_INTERVAL_MS = 30000;
@@ -296,7 +295,7 @@ function installSvgIcons() {
   setButtonIconText(document.getElementById('export-diagnostics'), 'report', document.getElementById('export-diagnostics')?.textContent || 'Собрать ZIP');
   setButtonIconText(document.getElementById('analyze-crash'), 'report', document.getElementById('analyze-crash')?.textContent || 'Анализ краша');
   for (const [id, icon] of [
-    ['copy-launch-log', 'copy'], ['home-instance-content', 'catalog'], ['home-instance-files', 'folder'],
+    ['copy-launch-log', 'copy'], ['browse-content-catalog', 'download'], ['home-instance-content', 'catalog'], ['home-instance-files', 'folder'],
     ['home-instance-worlds', 'world'], ['home-instance-logs', 'report'], ['add-account', 'plus'],
     ['import-existing-instance', 'folder'], ['import-mrpack', 'download'], ['pack-import-url-button', 'link'],
     ['choose-game-storage', 'folder'], ['default-game-storage', 'folder'], ['download-skin-by-nick', 'download'],
@@ -469,6 +468,7 @@ function setupCustomSelects() {
   document.addEventListener('click', () => closeCustomSelects());
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      if (document.querySelector('dialog[open]')) return;
       closeCustomSelects();
       closeBuildLibrary();
     }
@@ -520,9 +520,48 @@ function prepareLauncherSections() {
   }
 }
 
+function animatePanel(panel, axis = 'y') {
+  if (!panel) return;
+  panel.getAnimations().forEach(animation => animation.cancel());
+  if (document.body.classList.contains('reduce-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // A transform on the dashboard would also move its fixed launch bar.
+  const frames = panel.classList.contains('dashboard')
+    ? [{ opacity: 0 }, { opacity: 1 }]
+    : [{ opacity: 0, transform: `translate${axis === 'x' ? 'X' : 'Y'}(8px)` }, { opacity: 1, transform: 'translate(0)' }];
+  panel.animate(frames, { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+}
+
+// Native dialog supplies focus trapping and Escape; content is always plain text.
+function showActionDialog({ title, message, confirmText = 'Удалить', danger = false, notice = false }) {
+  const dialog = document.getElementById('action-dialog');
+  if (dialog.open) return Promise.resolve(false);
+  closeCustomSelects();
+  const previousFocus = document.activeElement;
+  dialog.querySelector('#action-dialog-title').textContent = localizer.value(title, {}, 'text');
+  dialog.querySelector('#action-dialog-message').textContent = localizer.value(message, {}, 'text');
+  const confirm = dialog.querySelector('#action-dialog-confirm');
+  confirm.textContent = localizer.value(confirmText, {}, 'text');
+  confirm.classList.toggle('danger', danger);
+  const cancel = dialog.querySelector('#action-dialog-cancel');
+  cancel.hidden = notice;
+  dialog.returnValue = '';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      previousFocus?.isConnected && previousFocus.focus({ preventScroll: true });
+      resolve(dialog.returnValue === 'confirm');
+    }, { once: true });
+    dialog.showModal();
+    (notice ? confirm : cancel).focus();
+    animatePanel(dialog);
+  });
+}
+
 function setLauncherSection(section = 'main') {
   const allowed = new Set(['main', 'library', 'create', 'mods', 'settings', 'profile']);
   const activeSection = allowed.has(section) ? section : 'main';
+  if (activeSection !== 'mods') document.getElementById('content-catalog').close();
+  const changed = launcherScreen.dataset.activeSection !== activeSection;
+  closeCustomSelects();
   launcherScreen.dataset.activeSection = activeSection;
   if (activeSection === 'library' || activeSection === 'create') {
     document.getElementById(activeSection === 'create' ? 'create-status-slot' : 'library-status-slot').append(buildLibraryStatus);
@@ -559,6 +598,24 @@ function setLauncherSection(section = 'main') {
     renderServerBuildResults();
   }
   updateWallpaperPlayback();
+  if (changed) animatePanel(document.querySelector('.dashboard'));
+}
+
+function syncSettingsIndicator(animate = true) {
+  const bar = document.querySelector('.settings-tabbar');
+  const selected = bar.querySelector('.settings-tab.active');
+  const indicator = bar.querySelector('.settings-indicator');
+  if (!bar.checkVisibility() || !selected) return;
+  const previous = indicator.getBoundingClientRect();
+  indicator.getAnimations().forEach(animation => animation.cancel());
+  indicator.style.left = `${selected.offsetLeft}px`;
+  indicator.style.top = `${selected.offsetTop}px`;
+  indicator.style.width = `${selected.offsetWidth}px`;
+  indicator.style.height = `${selected.offsetHeight}px`;
+  const next = indicator.getBoundingClientRect();
+  if (animate && previous.width && !document.body.classList.contains('reduce-motion') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    indicator.animate([{ transform: `translate(${previous.x - next.x}px, ${previous.y - next.y}px) scale(${previous.width / next.width}, ${previous.height / next.height})` }, { transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
 }
 
 function setSettingsTab(tab = 'info') {
@@ -570,15 +627,18 @@ function setSettingsTab(tab = 'info') {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
+  syncSettingsIndicator();
 
   settingsGroups.forEach((group) => {
+    const wasHidden = group.classList.contains('hidden');
     group.classList.toggle('hidden', group.dataset.settingsGroup !== activeTab);
+    if (wasHidden && !group.classList.contains('hidden')) animatePanel(group);
   });
   document.querySelector('.settings-panel')?.scrollTo(0, 0);
 }
 function setCreationTab(tab = 'custom') {
   if (!['custom', 'import', 'catalog'].includes(tab)) tab = 'custom';
-  document.querySelectorAll('[data-creation-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.creationPanel !== tab));
+  document.querySelectorAll('[data-creation-panel]').forEach(panel => { const wasHidden = panel.classList.contains('hidden'); panel.classList.toggle('hidden', panel.dataset.creationPanel !== tab); if (wasHidden && !panel.classList.contains('hidden')) animatePanel(panel); });
   document.querySelectorAll('[data-creation-tab]').forEach(button => { const active = button.dataset.creationTab === tab; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   if (tab === 'catalog') renderServerBuildResults();
   if (tab === 'catalog' && !modrinthPackResults.childNodes.length) void searchModrinthPacks();
@@ -704,6 +764,7 @@ function updateUserIdentity(nickname = '') {
   const name = String(nickname || 'offline').trim() || 'offline';
 
   if (activeUserName) activeUserName.textContent = name;
+  syncProfileButtonWidth();
   setAvatarImage(activeUserAvatar, name, 96);
   if (accountName) accountName.textContent = name;
   setAvatarImage(accountAvatar, name, 128);
@@ -713,6 +774,13 @@ function updateUserIdentity(nickname = '') {
   if (infoProfileName) infoProfileName.textContent = name;
   refreshUserHeadAvatar();
 }
+
+function syncProfileButtonWidth() {
+  activeUserLabel?.style.setProperty('--profile-expanded-width', `${Math.min(280, Math.max(80, activeUserName.scrollWidth + 50))}px`);
+}
+document.fonts.ready.then(syncProfileButtonWidth);
+window.addEventListener('resize', syncProfileButtonWidth);
+new ResizeObserver(() => syncSettingsIndicator(false)).observe(document.querySelector('.settings-tabbar'));
 
 function renderInfoPanel() {
   if (infoLauncherVersion) {
@@ -944,7 +1012,17 @@ function renderActiveInstanceSelect() {
 function renderSelectedInstanceHeader() {
   const instance = getActiveBuildInstance();
   const instanceName = document.getElementById('launch-instance-name');
+  const instanceId = instance?.id || '';
+  const changed = instanceName.dataset.instanceId !== undefined && instanceName.dataset.instanceId !== instanceId;
+  instanceName.dataset.instanceId = instanceId;
   if (instanceName) instanceName.textContent = instance?.name || 'Выберите сборку';
+  const icon = document.getElementById('launch-instance-icon');
+  icon.replaceChildren();
+  icon.hidden = !instance;
+  if (instance?.icon) {
+    const image = document.createElement('img'); image.src = instance.icon; image.alt = '';
+    icon.append(image);
+  } else if (instance) icon.textContent = String(instance.name || 'U').slice(0, 2).toUpperCase();
   if (serverInfo) {
     serverInfo.replaceChildren();
     if (instance) {
@@ -955,6 +1033,7 @@ function renderSelectedInstanceHeader() {
       }
     } else serverInfo.textContent = 'Создайте или импортируйте сборку';
   }
+  if (changed) animatePanel(wallpaperPreview, 'x');
 }
 function renderInstanceRail() {
   renderSelectedInstanceHeader();
@@ -973,6 +1052,7 @@ function renderInstanceRail() {
     return `
       <button class="instance-rail-button ${active ? 'active' : ''}" type="button" data-instance-id="${escapeHtml(instance.id)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
         ${instance.icon ? `<img src="${escapeHtml(instance.icon)}" alt="" />` : `<span>${escapeHtml(label)}</span>`}
+        <span class="instance-rail-name" data-i18n-ignore>${escapeHtml(instance.name)}</span>
       </button>
     `;
   }).join('');
@@ -2156,47 +2236,44 @@ async function setWallpaperPreview(filePath) {
 function getAppearanceFromFields() {
   return {
     theme: fields.appearanceTheme?.value || currentSettings?.appearance?.theme || 'cosmic',
-    accent: fields.accentColor?.value || currentSettings?.appearance?.accent || 'violet',
-    reduceMotion: Boolean(fields.reduceMotion?.checked)
+    accent: fields.accentColor?.value || currentSettings?.appearance?.accent || 'emerald',
+    reduceMotion: Boolean(fields.reduceMotion?.checked),
+    starBackground: Boolean(fields.starBackground?.checked),
+    transparency: Number(fields.interfaceTransparency?.value) || 0,
+    sidebarCollapsed: document.body.classList.contains('sidebar-collapsed')
   };
 }
 
+const appearanceAccents = { violet: '#b9a3e3', cyan: '#8bcfd3', emerald: '#80ce86', rose: '#e5a6b2' };
+
 function applyAppearance(appearanceOverride = null) {
   const appearance = appearanceOverride || currentSettings?.appearance || {};
-  const theme = ['cosmic', 'light', 'deep', 'contrast'].includes(appearance.theme) ? appearance.theme : 'cosmic';
-  const accent = String(appearance.accent || '').trim() || '';
+  const theme = ['cosmic', 'light', 'deep', 'contrast', 'oled'].includes(appearance.theme) ? appearance.theme : 'cosmic';
+  const requestedAccent = String(appearance.accent || '').trim();
+  const accent = appearanceAccents[requestedAccent] || (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(requestedAccent) ? requestedAccent : appearanceAccents.emerald);
   const reduceMotion = Boolean(appearance.reduceMotion);
-  const accentText = (() => {
-    const hex = accent.replace('#', '');
-    if (!/^[0-9a-f]{6}$/i.test(hex)) return '#ffffff';
-    const [r, g, b] = [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
-    return ((r * 299) + (g * 587) + (b * 114)) / 1000 > 150 ? '#111111' : '#ffffff';
-  })();
-  document.body.style.setProperty('--accent-text', accentText);
-
+  const raw = accent.slice(1);
+  const hex = raw.length === 3 ? [...raw].map(value => value + value).join('') : raw;
+  const rgb = [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
+  const channels = rgb.map(value => value / 255)
+    .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+  const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+  document.body.style.setProperty('--accent-text', luminance > .179 ? '#000000' : '#ffffff');
   document.body.dataset.theme = theme;
-  // If accent is a named token, use dataset; otherwise clear dataset and apply RGB vars
-  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)) {
-    document.body.dataset.accent = '';
-    const hex = accent.replace('#', '');
-    const r = parseInt(hex.length === 3 ? hex[0] + hex[0] : hex.slice(0, 2), 16);
-    const g = parseInt(hex.length === 3 ? hex[1] + hex[1] : hex.slice(2, 4), 16);
-    const b = parseInt(hex.length === 3 ? hex[2] + hex[2] : hex.slice(4, 6), 16);
-    const accentRgb = `${r}, ${g}, ${b}`;
-    const lighten = (v) => Math.min(255, Math.round(v + (255 - v) * 0.28));
-    const darken = (v) => Math.max(0, Math.round(v * 0.78));
-    const rL = lighten(r), gL = lighten(g), bL = lighten(b);
-    const rD = darken(r), gD = darken(g), bD = darken(b);
-    document.body.style.setProperty('--accent', `#${hex}`);
-    document.body.style.setProperty('--accent-light', `rgb(${rL}, ${gL}, ${bL})`);
-    document.body.style.setProperty('--accent-dark', `rgb(${rD}, ${gD}, ${bD})`);
-    document.body.style.setProperty('--accent-rgb', accentRgb);
-    document.body.style.setProperty('--accent-2-rgb', `${rL}, ${gL}, ${bL}`);
-    document.body.style.setProperty('--accent-glow', `rgba(${accentRgb}, 0.22)`);
-    document.body.style.setProperty('--accent-glow-s', `rgba(${accentRgb}, 0.36)`);
-  } else {
-    document.body.dataset.accent = accent || 'violet';
+  document.body.dataset.starBackground = String(appearance.starBackground === true);
+  const transparency = Math.max(0, Math.min(70, Number(appearance.transparency) || 0));
+  document.body.style.setProperty('--surface-opacity', String(1 - transparency / 100));
+  document.getElementById('interface-transparency-value').textContent = `${transparency}%`;
+  document.body.classList.toggle('sidebar-collapsed', appearance.sidebarCollapsed === true);
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  sidebarToggle.setAttribute('aria-expanded', String(appearance.sidebarCollapsed !== true));
+  const sidebarLabel = localizer.value(appearance.sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню', {}, 'text');
+  sidebarToggle.setAttribute('aria-label', sidebarLabel); sidebarToggle.title = sidebarLabel;
+  for (const property of ['--accent', '--accent-2', '--primary', '--primary-2']) {
+    document.body.style.setProperty(property, `#${hex}`);
   }
+  document.body.style.setProperty('--accent-rgb', rgb.join(', '));
+  document.body.style.setProperty('--accent-2-rgb', rgb.join(', '));
   const motionChanged = document.body.classList.contains('reduce-motion') !== reduceMotion;
   document.body.classList.toggle('reduce-motion', reduceMotion);
   if (motionChanged) {
@@ -2205,9 +2282,6 @@ function applyAppearance(appearanceOverride = null) {
     setPlayerPreviewAnimation(playerPreview.capeAnimated);
     if (launcherScreen.dataset.activeSection === 'profile' && !launcherHidden()) void refreshProfilePreviews();
   }
-  const styles = getComputedStyle(document.body);
-  spaceAccentRgb = styles.getPropertyValue('--accent-rgb').trim() || spaceAccentRgb;
-  spaceAccent2Rgb = styles.getPropertyValue('--accent-2-rgb').trim() || spaceAccent2Rgb;
   updateWallpaperPlayback();
 }
 
@@ -2242,11 +2316,12 @@ function applySettingsToUi() {
     if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(acc)) {
       fields.accentColor.value = acc;
     } else {
-      const map = { violet: '#8b5cf6', cyan: '#06b6d4', emerald: '#10b981', rose: '#f43f5e' };
-      fields.accentColor.value = map[acc] || '#8b5cf6';
+      fields.accentColor.value = appearanceAccents[acc] || appearanceAccents.emerald;
     }
   }
   if (fields.reduceMotion) fields.reduceMotion.checked = Boolean(currentSettings.appearance?.reduceMotion);
+  if (fields.starBackground) fields.starBackground.checked = currentSettings.appearance?.starBackground === true;
+  fields.interfaceTransparency.value = currentSettings.appearance?.transparency || 0;
   versionLabel.textContent = fields.minecraftVersion.value;
   serverLabel.textContent = currentSettings.server.name;
   fields.hideLauncherDuringGame.checked = Boolean(currentSettings.hideLauncherDuringGame);
@@ -2390,13 +2465,21 @@ async function refreshContentManager() {
   if (checkModrinthUpdatesButton) checkModrinthUpdatesButton.classList.toggle('hidden', activeContentType !== 'mods');
   const title = document.querySelector('.installed-mods-panel h3');
   if (title) title.textContent = ({ mods: 'Моды сборки', resourcepack: 'Текстуры сборки', shader: 'Шейдеры сборки', worlds: 'Миры сборки' })[activeContentType] || 'Содержимое сборки';
+  const browse = document.getElementById('browse-content-catalog');
+  const browseLabel = ({ mods: 'Скачать моды', resourcepack: 'Скачать текстуры', shader: 'Скачать шейдеры' })[activeContentType];
+  browse.hidden = !browseLabel;
+  browse.disabled = launchActive || !getActiveBuildInstance();
+  if (browseLabel) setButtonIconText(browse, 'download', localizer.value(browseLabel, {}, 'text'));
+  document.getElementById('content-catalog-title').textContent = `${localizer.value(contentLabel, {}, 'text')} · Modrinth`;
+  const instance = getActiveBuildInstance();
+  document.getElementById('content-catalog-instance').textContent = instance ? `${instance.name} · Minecraft ${instance.minecraftVersion} · ${formatLoaderName(instance.loader)}` : '';
   contentManagerTabs?.querySelectorAll('[data-content-tab]').forEach((button) => { const active = button.dataset.contentTab === activeContentType; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   if (activeContentType === 'mods') { contentManagerList.classList.add('hidden'); if (modrinthInstalledMods) modrinthInstalledMods.classList.remove('hidden'); await refreshMods(); return; }
   if (modrinthInstalledMods) modrinthInstalledMods.classList.add('hidden'); contentManagerList.classList.remove('hidden');
   const instanceId = currentSettings?.activeInstanceId;
   const result = await window.api.listGameContent({ type: activeContentType, instanceId, nickname: activeUser?.nickname });
   if (revision !== contentRefreshRevision || instanceId !== currentSettings?.activeInstanceId) return;
-  contentManagerList.innerHTML = result.success && result.items.length ? result.items.map((item) => `<li class="mod-row"><div><strong>${escapeHtml(item.baseName)}</strong><small>${item.sizeMb} MB${item.enabled ? '' : ' · disabled'}</small></div><div class="mod-row-actions"><button class="mod-toggle ${item.enabled ? 'active' : ''}" type="button" data-content-name="${escapeHtml(item.name)}"><span></span></button><button class="icon-button content-delete" type="button" data-content-name="${escapeHtml(item.name)}" title="Delete">${SVG_ICONS.trash.replace('button-icon', '')}</button></div></li>`).join('') : `<li class="empty-row">${escapeHtml(result.error || 'Пока ничего не установлено.')}</li>`;
+  contentManagerList.innerHTML = result.success && result.items.length ? result.items.map((item) => `<li class="mod-row"><div><strong>${escapeHtml(item.baseName)}</strong><small>${item.sizeMb} MB${item.enabled ? '' : ' · disabled'}</small></div><div class="mod-row-actions"><button class="mod-toggle ${item.enabled ? 'active' : ''}" type="button" role="switch" aria-checked="${Boolean(item.enabled)}" aria-label="${escapeHtml(item.baseName)}" data-content-name="${escapeHtml(item.name)}"><span></span></button><button class="icon-button content-delete" type="button" data-content-name="${escapeHtml(item.name)}" title="Delete">${SVG_ICONS.trash.replace('button-icon', '')}</button></div></li>`).join('') : `<li class="empty-row">${escapeHtml(result.error || 'Пока ничего не установлено.')}</li>`;
   contentManagerTabs?.querySelectorAll('[data-content-tab]').forEach((button) => button.classList.toggle('active', button.dataset.contentTab === activeContentType));
 
 }
@@ -2743,7 +2826,7 @@ function renderInstalledModsList(target, mods = []) {
         <small>${escapeHtml(mod.sizeMb)} MB <span>${mod.enabled === false ? 'disabled' : ''}</span></small>
       </div>
       <div class="mod-row-actions">
-        <button class="mod-toggle ${mod.enabled === false ? '' : 'active'}" type="button" data-mod-name="${escapeHtml(mod.name)}" aria-label="Toggle mod">
+        <button class="mod-toggle ${mod.enabled === false ? '' : 'active'}" type="button" role="switch" aria-checked="${mod.enabled !== false}" data-mod-name="${escapeHtml(mod.name)}" aria-label="${escapeHtml(mod.name)}">
           <span></span>
         </button>
         <button class="icon-button mod-delete" type="button" data-mod-name="${escapeHtml(mod.name)}" aria-label="Delete mod" title="Delete mod">
@@ -3139,14 +3222,16 @@ async function installModrinthMod(button) {
   button.disabled = true;
   button.textContent = 'Установка...';
   setStatusText(modrinthModStatus, 'Скачиваю мод и обязательные зависимости...');
-  const result = await window.api.installModrinthMod({
+  let result;
+  try { result = await window.api.installModrinthMod({
     nickname: activeUser?.nickname || '',
+    instanceId: currentSettings?.activeInstanceId,
     projectId: button.dataset.projectId,
     slug: button.dataset.projectSlug,
     versionId: button.dataset.versionId || '',
     minecraftVersion: getSelectedMinecraftVersion(),
     loader: getSelectedModLoader()
-  });
+  }); } catch (error) { result = { success: false, error: error.message }; }
 
   button.disabled = false;
   button.textContent = previousText;
@@ -3235,6 +3320,7 @@ async function toggleInstalledMod(button) {
 async function deleteInstalledMod(button) {
   const name = button?.dataset?.modName;
   if (!name) return;
+  if (!await showActionDialog({ title: 'Удалить мод?', message: name, danger: true })) return;
   const row = button.closest('li');
   const result = await window.api.scheduleModDelete({
     nickname: activeUser?.nickname || '',
@@ -3882,7 +3968,7 @@ async function launchMinecraft() {
       const major = Math.max(21, result.minimumJava || 21);
       const lang = currentSettings?.language || 'ru';
       const prompts = { ru: `Открыть установку Java ${major}?`, en: `Open Java ${major} installation?`, es: `¿Abrir la instalación de Java ${major}?` };
-      const install = window.confirm(`${localizer.value(result.error, {}, 'text')}\n\n${prompts[lang] || prompts.ru}`);
+      const install = await showActionDialog({ title: prompts[lang] || prompts.ru, message: result.error, confirmText: 'Установить' });
       if (install) {
         if (major > 21) await window.api.openExternal(result.javaInstallUrl);
         else await window.api.installJava();
@@ -3931,12 +4017,6 @@ async function refreshLaunchState() {
     if (state.active || !launchRequestPending) setLaunchActive(state.active, state.running);
   } catch { /* Keep known state when the backend is temporarily unavailable. */ }
   finally { launchPollBusy = false; }
-}
-
-function startSpaceEffect() {
-  const background = new window.AmbientBackground(spaceCanvas, () => [spaceAccentRgb, spaceAccent2Rgb]);
-  background.start();
-  window.addEventListener('pagehide', () => background.dispose(), { once: true });
 }
 
 function resetPlayerPreviewView() {
@@ -4242,11 +4322,12 @@ instanceList?.addEventListener('click', async (event) => {
   if (deleteButton) {
     const instanceId = deleteButton.dataset.instanceId;
     if (!instanceId) return;
-    const ok = confirm('Удалить сборку? Это действие нельзя отменить.');
+    const instance = buildInstances.find(item => item.id === instanceId);
+    const ok = await showActionDialog({ title: 'Удалить сборку?', message: `${instance?.name || ''}\n\n${localizer.value('Сборка исчезнет из списка лаунчера. Файлы игры останутся на диске.', {}, 'text')}`, danger: true });
     if (!ok) return;
     const result = await window.api.deleteBuildInstance({ nickname: activeUser?.nickname || '', instanceId });
     if (!result || !result.success) {
-      alert(result?.error || 'Не удалось удалить сборку.');
+      await showActionDialog({ title: 'Не удалось удалить сборку.', message: result?.error || '', confirmText: 'Закрыть', notice: true });
       return;
     }
     buildInstances = result.instances || buildInstances.filter((i) => i.id !== instanceId);
@@ -4292,6 +4373,17 @@ document.getElementById('open-user-mods-panel')?.addEventListener('click', () =>
   type: activeContentType
 }));
 modrinthModSearchButton?.addEventListener('click', searchModrinthMods);
+document.getElementById('browse-content-catalog').addEventListener('click', () => {
+  if (launchActive || activeContentType === 'worlds' || !getActiveBuildInstance()) return;
+  const catalog = document.getElementById('content-catalog');
+  if (catalog.dataset.contentType !== activeContentType) modrinthModSearch.value = '';
+  catalog.dataset.contentType = activeContentType;
+  catalog.showModal();
+  modrinthModSearch.focus();
+  animatePanel(catalog);
+  void searchModrinthMods();
+});
+document.getElementById('close-content-catalog').addEventListener('click', () => document.getElementById('content-catalog').close());
 modrinthModSearch?.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -4426,7 +4518,7 @@ document.getElementById('show-current-release').addEventListener('click', showCu
 document.getElementById('update-notification').addEventListener('click', () => { if (launcherUpdateState.release) showReleaseNotes(launcherUpdateState.release, true); });
 document.getElementById('close-release-panel').addEventListener('click', closeReleaseNotes);
 document.getElementById('release-download').addEventListener('click', openUpdateRelease);
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeReleaseNotes(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('dialog[open]')) closeReleaseNotes(); });
 window.addEventListener('focus', () => {
   if (!activeUser) return;
   if (Date.now() - lastUpdateCheck >= 30 * 60 * 1000) void checkUpdates(true);
@@ -4480,10 +4572,20 @@ document.getElementById('default-game-storage')?.addEventListener('click', () =>
 refreshGameStorage();
 document.getElementById('export-diagnostics')?.addEventListener('click', exportDiagnostics);
 document.getElementById('analyze-crash')?.addEventListener('click', analyzeCrash);
-contentManagerTabs?.addEventListener('click', async (event) => { const button = event.target.closest('[data-content-tab]'); if (!button || launchActive) return; activeContentType = button.dataset.contentTab; modrinthSearchRevision++; if (modrinthModResults) modrinthModResults.innerHTML = ''; renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods); await refreshContentManager(); });
+contentManagerTabs?.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-content-tab]');
+  if (!button || launchActive || activeContentType === button.dataset.contentTab) return;
+  activeContentType = button.dataset.contentTab;
+  modrinthSearchRevision++;
+  if (modrinthModResults) modrinthModResults.innerHTML = '';
+  renderCatalogPagination(modrinthModResults, 0, 0, 16, searchModrinthMods);
+  await refreshContentManager();
+  animatePanel(contentManagerList.classList.contains('hidden') ? modrinthInstalledMods : contentManagerList);
+});
 contentManagerList?.addEventListener('click', async event => {
   const button = event.target.closest('[data-content-name]');
   if (!button || launchActive) return;
+  if (button.classList.contains('content-delete') && !await showActionDialog({ title: 'Удалить файл?', message: `${button.dataset.contentName}\n\n${localizer.value('Это действие нельзя отменить.', {}, 'text')}`, danger: true })) return;
   button.disabled = true;
   try {
     const payload = { type: activeContentType, name: button.dataset.contentName, nickname: activeUser?.nickname, instanceId: currentSettings.activeInstanceId };
@@ -4515,6 +4617,14 @@ fields.appearanceTheme?.addEventListener('change', () => saveSettings());
 fields.accentColor?.addEventListener('input', () => applyAppearance(getAppearanceFromFields()));
 fields.accentColor?.addEventListener('change', () => saveSettings());
 fields.reduceMotion?.addEventListener('change', () => saveSettings());
+fields.starBackground?.addEventListener('change', () => saveSettings());
+fields.interfaceTransparency.addEventListener('input', () => applyAppearance(getAppearanceFromFields()));
+fields.interfaceTransparency.addEventListener('change', () => saveSettings());
+document.getElementById('sidebar-toggle').addEventListener('click', async () => {
+  document.body.classList.toggle('sidebar-collapsed');
+  applyAppearance(getAppearanceFromFields());
+  await saveSettings();
+});
 fields.language?.addEventListener('change', async () => {
   applyLanguage(fields.language.value);
   await saveSettings({ language: fields.language.value });
@@ -4777,11 +4887,17 @@ const fileDrops = new window.FileDropController({
 });
 window.addEventListener('pagehide', () => { fileDrops.dispose(); clearTimeout(dropStatusTimer); }, { once: true });
 
+const starBackground = new window.AmbientBackground(document.getElementById('space-canvas'), () => {
+  const color = document.body.style.getPropertyValue('--accent-rgb').trim() || '128, 206, 134';
+  return [color, color];
+}, () => document.body.dataset.starBackground === 'true');
+starBackground.start();
+window.addEventListener('pagehide', () => starBackground.dispose(), { once: true });
+
 init().catch((error) => {
   dismissStartupScreen();
   setMessage(loginMessage, 'Ошибка загрузки: ' + error.message);
 });
-startSpaceEffect();
 
 for (const [buttonId, setting, inputId] of [
   ['choose-horizon-client', 'horizonExecutable', 'horizon-executable'],

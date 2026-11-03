@@ -44,5 +44,10 @@ const extract = (from, to) => source.slice(source.indexOf(from), source.indexOf(
   context.window.api.installModrinthProject=async payload=>{assert.equal(payload.instanceId,'first');throw Error('Install failed');};
   await context.installModrinthProject(button);
   assert.equal(button.disabled,false); assert.equal(button.textContent,'Install'); assert.equal(status.text,'Install failed');
+  Object.assign(context, { refreshMods: async () => {} });
+  vm.runInContext(extract('async function installModrinthMod(', 'async function installModrinthPack('), context);
+  context.window.api.installModrinthMod = async payload => { assert.equal(payload.instanceId, 'first'); throw Error('Mod install failed'); };
+  await context.installModrinthMod(button);
+  assert.equal(button.disabled, false); assert.equal(button.textContent, 'Install'); assert.equal(status.text, 'Mod install failed');
   console.log('PASS: newest search wins, switched tabs ignore stale results, network errors shown, failed installs unlock button and target correct status/instance');
 })().catch(error=>{console.error(error);process.exitCode=1;});

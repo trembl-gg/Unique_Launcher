@@ -44,7 +44,9 @@ const { JavaService } = require('../lib/java-service');
   for (const [lang, label] of [['ru', 'Скачать лаунчер'], ['en', 'Download launcher'], ['es', 'Descargar launcher']]) {
     language = lang; const buttons = rpc.getDiscordButtons({ youtubeUrl: 'https://youtube.com/test', twitchUrl: 'https://twitch.tv/test' });
     assert.equal(buttons[0].label, label); assert.equal(buttons[0].url, 'https://github.com/trembl-gg/Unique_Launcher/releases/latest');
-    assert.equal(buttons.length, 2);
+    assert.equal(buttons.length, 3);
+    assert.equal(buttons[1].label, 'YouTube');
+    assert.equal(buttons[2].label, 'Twitch');
   }
   const events = [];
   const cancelled = new LaunchSession({ record: event => events.push(event), onFinish() {} });

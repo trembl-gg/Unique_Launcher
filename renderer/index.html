@@ -5,12 +5,12 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UNIQUE LAUNCHER</title>
-  <style>html, body { background: #090611; }</style>
+  <style>html, body { background: #141615; }</style>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <canvas class="space-canvas" id="space-canvas" width="0" height="0" aria-hidden="true"></canvas>
   <div id="download-banner" class="download-banner" hidden><div class="download-caption"><span id="download-name"></span><span id="download-amount" data-i18n-ignore></span></div><progress id="download-meter" max="100" aria-label="Прогресс загрузки"></progress></div>
-  <canvas class="space-canvas" id="space-canvas" aria-hidden="true"></canvas>
   <header class="window-titlebar">
     <div class="window-drag-region">
       <span class="titlebar-icon-wrap">
@@ -21,7 +21,7 @@
     </div>
     <div class="nav-actions titlebar-account-actions">
       <button class="tiny-button hidden" id="update-notification" type="button" aria-controls="release-panel" aria-expanded="false">Обновление</button>
-      <span class="user-pill" id="active-user" role="button" tabindex="0">
+      <span class="user-pill" id="active-user" role="button" tabindex="0" aria-label="Профиль" title="Профиль">
         <img class="user-avatar" id="active-user-avatar" alt="" />
         <span id="active-user-name">offline</span>
       </span>
@@ -56,7 +56,7 @@
 
       <div class="auth-card auth-choice-card">
         <div class="auth-choice-heading">
-          <h2>Добро пожаловать</h2>
+          <h2>Вход в Minecraft</h2>
           <p>Лицензионный аккаунт Microsoft или локальный офлайн-профиль.</p>
         </div>
         <button class="primary-button microsoft-login-button" id="microsoft-login-button" type="button">Войти с Microsoft</button>
@@ -77,17 +77,22 @@
 
     <section class="launcher-screen hidden" id="launcher-screen" data-active-section="main">
       <aside class="app-rail" aria-label="Навигация">
-        <button class="rail-button active" type="button" data-section="main" aria-label="Home" title="Home">
+        <button class="rail-toggle" id="sidebar-toggle" type="button" aria-label="Свернуть меню" aria-expanded="true" title="Свернуть меню"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m6-11-3 3 3 3"/></svg><span class="rail-label">Minecraft Java Edition</span></button>
+        <button class="rail-button active" type="button" data-section="main" aria-label="Главная" title="Главная">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" /></svg>
+          <span class="rail-label">Главная</span>
         </button>
         <button class="rail-button" type="button" id="rail-open-library" data-section="library" aria-label="Мои сборки" title="Мои сборки">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
-        </button>        <div class="rail-divider" aria-hidden="true"></div>
+          <span class="rail-label">Мои сборки</span>
+        </button>
+        <div class="rail-divider" aria-hidden="true"></div>
         <div class="instance-rail" id="instance-rail" aria-label="Мои сборки"></div>
-        <button class="instance-rail-add" id="rail-create-instance" data-section="create" type="button" aria-label="Создать сборку" title="Создать сборку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
+        <button class="instance-rail-add" id="rail-create-instance" data-section="create" type="button" aria-label="Создать сборку" title="Создать сборку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="rail-label">Создать сборку</span></button>
         <div class="rail-divider rail-divider-bottom" aria-hidden="true"></div>
         <button class="rail-button" type="button" data-section="settings" aria-label="Настройки" title="Настройки">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.5.9-2.2-.6-2.5 4.3 1.6 1.6v1.8l-1.6 1.6 2.5 4.3 2.2-.6 1.5.9.6 2.2h5l.6-2.2 1.5-.9 2.2.6 2.5-4.3-1.6-1.6v-1.8l1.6-1.6-2.5-4.3-2.2.6-1.5-.9-.6-2.2z"/><circle cx="12" cy="12" r="3.5"/></svg>
+          <span class="rail-label">Настройки</span>
         </button>
       </aside>
       <nav class="top-nav">
@@ -160,7 +165,7 @@
             <div class="scanline"></div>
             <div class="launch-copy">
               <p class="eyebrow">готов к запуску</p>
-              <h2 id="launch-instance-name" data-i18n-ignore>Выберите сборку</h2><span id="version-label" hidden>1.20.1</span>
+              <div class="launch-instance-heading"><span id="launch-instance-icon" aria-hidden="true" data-i18n-ignore></span><h2 id="launch-instance-name" data-i18n-ignore>Выберите сборку</h2></div><span id="version-label" hidden>1.20.1</span>
               <p id="server-info">Minecraft Launcher</p>
             </div>
           </div>
@@ -282,7 +287,7 @@
           </div>
           <section class="panel-section wide">
             <div class="instance-library-tools">
-              <input id="instance-search" type="search" placeholder="Поиск сборок по названию, версии или загрузчику" aria-label="Поиск сборок" />
+              <input id="instance-search" type="search" placeholder="Поиск сборок" aria-label="Поиск сборок по названию, версии или загрузчику" />
               <select id="instance-sort" aria-label="Порядок сборок"><option value="favorite">Сначала избранные</option><option value="name">По названию</option><option value="newest">Сначала новые</option></select>
             </div>
             <div class="instance-list" id="instance-list"></div>
@@ -390,7 +395,10 @@
             </div>
           </div>
           <div class="mods-layout">
-            <section class="panel-section wide">
+            <dialog id="content-catalog" class="content-catalog" aria-labelledby="content-catalog-title">
+              <div class="section-head"><h2 id="content-catalog-title">Modrinth</h2><button class="icon-button" id="close-content-catalog" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+              <p class="hint" id="content-catalog-instance" data-i18n-ignore></p>
+              <section class="panel-section wide">
               <div class="section-head compact">
                 <h3>Поиск модов Modrinth</h3>
                 <span id="modrinth-mod-loader-label">Fabric</span>
@@ -401,11 +409,13 @@
               </div>
               <p class="hint" id="modrinth-mod-status">Файлы устанавливаются только в выбранную сборку.</p>
               <div class="modrinth-results" id="modrinth-mod-results"></div>
-            </section>
+              </section>
+            </dialog>
 
             <section class="panel-section installed-mods-panel">
               <div class="section-head">
                 <h3>Установленные моды</h3>
+                <button class="tiny-button" id="browse-content-catalog" type="button">Скачать моды</button>
                 <button class="tiny-button" id="refresh-mods-panel" type="button">Обновить</button>
               </div>
               <button class="tiny-button" id="open-user-mods-panel" type="button">Открыть папку</button>
@@ -435,6 +445,7 @@
             </div>
           </div>
           <div class="settings-tabbar" aria-label="Вкладки настроек">
+            <span class="settings-indicator" aria-hidden="true"></span>
             <button class="settings-tab active" type="button" data-settings-tab="info">Информация</button>
             <button class="settings-tab" type="button" data-settings-tab="game">Настройки</button>
             <button class="settings-tab" type="button" data-settings-tab="debug">Диагностика</button>
@@ -546,10 +557,11 @@
                 <label>
                   Тема
                   <select id="appearance-theme">
-                    <option value="cosmic">Cosmic</option>
-                    <option value="light">Light</option>
-                    <option value="deep">Deep</option>
-                    <option value="contrast">Contrast</option>
+                    <option value="cosmic">Графит</option>
+                    <option value="light">Светлая</option>
+                    <option value="deep">Тёмная</option>
+                    <option value="contrast">Контрастная</option>
+                    <option value="oled">OLED</option>
                   </select>
                 </label>
                 <label>
@@ -562,9 +574,14 @@
                 </label>
                 <label>
                   Акцент
-                  <input id="accent-color" type="color" value="#8b5cf6" />
+                  <input id="accent-color" type="color" value="#80ce86" />
                 </label>
                 <small class="hint">Изменения сохраняются автоматически</small>
+                <label class="transparency-setting">Прозрачность панелей <output id="interface-transparency-value" for="interface-transparency">0%</output><input id="interface-transparency" type="range" min="0" max="70" step="5" value="0" /><small class="hint">Фон виден сквозь панели</small></label>
+                <label class="check-row setting-check">
+                  <input id="star-background" type="checkbox" />
+                  <span>Звёздный фон</span>
+                </label>
                 <label class="check-row setting-check">
                   <input id="reduce-motion" type="checkbox" />
                   <span>Уменьшить анимации</span>
@@ -689,16 +706,16 @@
 
         <section class="log-panel" data-section-panel="main">
           <div class="section-head">
-            <h3>Журнал запуска</h3>
+            <h3>Журнал</h3>
+            <fieldset class="log-levels" aria-label="Уровни журнала">
+              <label><input type="checkbox" data-log-level="info" checked />Информация</label>
+              <label><input type="checkbox" data-log-level="error" checked />Ошибки</label>
+              <label><input type="checkbox" data-log-level="warn" checked />Предупреждения</label>
+              <label><input type="checkbox" data-log-level="debug" />Отладка</label>
+            </fieldset>
             <button class="tiny-button" id="copy-launch-log" type="button">Копировать логи</button>
             <button class="tiny-button" id="clear-log" type="button">Очистить</button>
           </div>
-          <fieldset class="log-levels" aria-label="Уровни журнала">
-            <label><input type="checkbox" data-log-level="info" checked />Информация</label>
-            <label><input type="checkbox" data-log-level="error" checked />Ошибки</label>
-            <label><input type="checkbox" data-log-level="warn" checked />Предупреждения</label>
-            <label><input type="checkbox" data-log-level="debug" />Отладка</label>
-          </fieldset>
           <pre id="launch-log" aria-label="Журнал запуска"></pre>
         </section>
       </div>
@@ -714,6 +731,13 @@
     <button id="release-download" class="primary-button" type="button">Скачать с GitHub</button>
   </section>
   <dialog id="game-crash-screen" class="game-crash-screen"><h1>Игра завершилась с ошибкой</h1><p>Код завершения</p><strong id="game-crash-code" data-i18n-ignore></strong><p>Подробности доступны в журнале запуска.</p><button id="close-game-crash" type="button" class="primary-button">Закрыть</button></dialog>
+  <dialog id="action-dialog" class="action-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-message">
+    <form method="dialog">
+      <h2 id="action-dialog-title" data-i18n-ignore></h2>
+      <p id="action-dialog-message" data-i18n-ignore></p>
+      <div class="action-dialog-buttons"><button id="action-dialog-cancel" class="tiny-button" value="cancel" autofocus>Отменить</button><button id="action-dialog-confirm" class="primary-button" value="confirm" data-i18n-ignore>Удалить</button></div>
+    </form>
+  </dialog>
   <dialog id="instance-editor" class="instance-editor">
     <form id="instance-editor-form">
       <h2>Настройки сборки</h2>

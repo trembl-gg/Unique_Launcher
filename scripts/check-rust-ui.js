@@ -100,7 +100,7 @@ const { chromium } = require(process.env.UNIQUE_PLAYWRIGHT_MODULE);
     assert.equal(await page.locator('[data-settings-tab="technical"], #repair-game').count(), 0);
     await page.click('[data-settings-tab="game"]');
     await page.evaluate(async () => { fields.reduceMotion.checked = true; await saveSettings(); });
-    await page.waitForFunction(() => document.querySelector('#space-canvas').width === 0);
+    assert.equal(await page.locator('#space-canvas').evaluate(canvas => canvas.width * canvas.height), 0);
     await capture('settings');
     await page.click('#active-user');
     await page.waitForFunction(() => document.querySelector('#launcher-screen').dataset.activeSection === 'profile');

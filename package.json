@@ -1,6 +1,6 @@
 {
   "name": "minecraft-launcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "UNIQUE LAUNCHER with Microsoft and offline auth, custom builds and Modrinth integration",
   "author": "trembl_gg",
   "main": "main.js",
@@ -13,6 +13,7 @@
     "start:legacy": "dotnet run --project webview2/UniqueLauncher.WebView2.csproj",
     "check:rust": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-rust.ps1",
     "test:rust-ui": "node scripts/check-rust-ui.js",
+    "test:interface": "node scripts/check-interface.js",
     "test:backend": "node scripts/check-backend-stdio.js && node scripts/check-auth-flows.js",
     "test:loaders": "node scripts/check-loader-preparation.js",
     "dist:rust": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-rust.ps1",

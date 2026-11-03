@@ -784,11 +784,7 @@ function getDiscordButtons(profile) {
     socials.push({ label: 'Twitch', url: profile.twitchUrl });
   }
 
-  if (socials.length === 1) {
-    buttons.push(socials[0]);
-  } else if (socials.length > 1) {
-    buttons.push(socials[0]);
-  }
+  buttons.push(...socials);
 
   return buttons;
 }

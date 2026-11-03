@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { DiscordActivity } = require('../lib/discord-activity');
 const { DiscordPresence } = require('../lib/discord-presence');
+const launcher = `Unique Launcher ${require('../package.json').version}`;
 
 (async () => {
   const url = 'https://github.com/trembl-gg/Unique_Launcher/releases/latest';
@@ -50,18 +51,30 @@ const { DiscordPresence } = require('../lib/discord-presence');
     await presence.updateDiscordRpc({ nickname: 'QA' });
     clients[0].emit('ready'); await flush();
     assert.equal(sent[0].buttons[0].label, 'Скачать лаунчер');
-    assert.equal(sent[0].state, 'QA · Microsoft');
+    assert.equal(sent[0].state, `${launcher} · QA · Microsoft`);
+    assert.equal(sent[0].name, launcher);
+    assert.equal(presence.rpcInterval._idleTimeout, 10000);
+    const originalNow = Date.now;
+    const rotationStart = presence.socialRotationStartedAt;
+    try {
+      for (const [elapsed, expected] of [[0, 'YouTube'], [9999, 'YouTube'], [10000, 'Twitch'], [19999, 'Twitch'], [20000, 'YouTube']]) {
+        Date.now = () => rotationStart + elapsed;
+        await presence.updateDiscordRpc();
+        assert.equal(sent.at(-1).buttons[1].label, expected, `${elapsed} ms`);
+        assert.equal(sent.at(-1).buttons[0].url, url);
+      }
+    } finally { Date.now = originalNow; }
     session = { nickname: 'Karmic_Occul7i5t', microsoft: true };
     await presence.updateDiscordRpc();
-    assert.equal(sent.at(-1).state, 'Karmic_Occul7i5t · Microsoft', 'idle heartbeat follows the selected Minecraft account');
+    assert.equal(sent.at(-1).state, `${launcher} · Karmic_Occul7i5t · Microsoft`, 'idle heartbeat follows the selected Minecraft account');
     session = { nickname: 'OfflinePlayer', guest: true };
     await presence.updateDiscordRpc({ nickname: 'StaleNickname', microsoft: true });
-    assert.equal(sent.at(-1).state, 'OfflinePlayer · Офлайн');
+    assert.equal(sent.at(-1).state, `${launcher} · OfflinePlayer · Офлайн`);
     presence.startPlayingDiscordRpc({ nickname: 'GamePlayer', microsoft: true }, { memory: { max: 2048 } });
     await flush();
-    assert.equal(sent.at(-1).state, 'GamePlayer · Microsoft', 'playing activity keeps the game account');
+    assert.equal(sent.at(-1).state, `${launcher} · GamePlayer · Microsoft`, 'playing activity keeps the game account');
     presence.stopPlayingDiscordRpc(); await flush();
-    assert.equal(sent.at(-1).state, 'OfflinePlayer · Офлайн', 'stopping returns to the selected launcher account');
+    assert.equal(sent.at(-1).state, `${launcher} · OfflinePlayer · Офлайн`, 'stopping returns to the selected launcher account');
     language = 'en'; presence.section = 'create';
     await presence.updateDiscordRpc();
     assert.equal(sent.at(-1).details, 'Creating an instance');

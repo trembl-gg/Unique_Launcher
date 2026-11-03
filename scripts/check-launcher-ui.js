@@ -25,7 +25,7 @@ const currentVersion = require('../package.json').version;
   const windowActions = [];
   const memoryModes = [];
   const folderCalls = [];
-  const nativeFolders = [], catalogCalls = [];
+  const nativeFolders = [], catalogCalls = [], installCalls = [];
   let folderError = '';
   let updateReply = { success: true, state: 'none', currentVersion };
   let updateCalls = 0, updateDownloads = 0, updateDownloadFails = false;
@@ -74,6 +74,10 @@ const currentVersion = require('../package.json').version;
           const size = message.payload.limit, offset = message.payload.offset || 0;
           return reply({ success: true, totalHits: 37, projects: Array.from({ length: Math.min(size, 37 - offset) }, (_, index) => ({ id: `qa-${offset + index}`, title: `Project ${offset + index + 1}`, description: 'A useful Minecraft project with a clear description and compatible downloads.', downloads: 123456, latestVersion: '1.20.1', categories: ['fabric'] })) });
         }
+        if (['modrinth-install-mod', 'modrinth-install-project'].includes(message.channel)) {
+          installCalls.push({ channel: message.channel, ...message.payload });
+          return reply({ success: true, installedCount: 1, installed: [{ name: 'QA download' }] });
+        }
         if (['open-game-content-folder', 'open-logs-folder'].includes(message.channel)) {
           folderCalls.push({ channel: message.channel, payload: message.payload });
           return reply(folderError ? { success: false, error: folderError } : { success: true, path: root });
@@ -101,8 +105,7 @@ const currentVersion = require('../package.json').version;
     }
     await authPage();
     assert(await page.locator('.titlebar-account-actions').isHidden(), 'account controls stay hidden before login');
-    const sky = await page.locator('.space-canvas').evaluate(canvas => canvas.toDataURL());
-    await page.waitForFunction(previous => document.querySelector('.space-canvas').toDataURL() !== previous, sky);
+    assert.equal(await page.locator('.space-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'star background is disabled by default');
     await page.screenshot({path:'.tools/qa-auth.png', animations:'disabled'});
     await page.fill('#guest-nick', 'OfflineBrowser');
     const before = Date.now();
@@ -253,7 +256,7 @@ const currentVersion = require('../package.json').version;
     await page.evaluate(() => { const select = document.querySelector('#account-switch'); select.selectedOptions[0].dataset.microsoft = 'false'; syncCustomSelect(select); });
     await page.evaluate(() => document.fonts.ready);
     assert(await page.evaluate(() => document.fonts.check('14px Manrope') && document.fonts.check('24px Unbounded')));
-    assert(await page.evaluate(() => [...document.querySelectorAll('input[type="checkbox"]')].every(input => getComputedStyle(input).appearance === 'none')));
+    assert(await page.evaluate(() => [...document.querySelectorAll('.setting-check input, [data-log-level]')].every(input => getComputedStyle(input).appearance === 'none')));
     await page.locator('[data-section="library"]:visible').first().click();
     await page.click('#rail-create-instance');
     await page.click('[data-creation-tab="import"]');
@@ -274,12 +277,26 @@ const currentVersion = require('../package.json').version;
     await page.click('#home-instance-content');
     for (const type of ['mods', 'resourcepack', 'shader']) {
       await page.click(`[data-content-tab="${type}"]`);
+      await page.click('#browse-content-catalog');
+      await page.locator('#content-catalog').waitFor({ state: 'visible' });
+      assert((await page.locator('#content-catalog-instance').textContent()).includes('QA Renamed'));
       await page.click('#modrinth-mod-search-button');
       await page.waitForFunction(() => document.querySelector('#modrinth-mod-results strong')?.textContent === 'Project 1');
       await page.locator('#modrinth-mod-results + .catalog-pagination button').last().click();
       await page.waitForFunction(() => document.querySelector('#modrinth-mod-results strong')?.textContent === 'Project 17');
+      const install = page.locator('#modrinth-mod-results .modrinth-install-mod, #modrinth-mod-results .modrinth-install-project').first();
+      await install.click();
+      await page.waitForFunction(() => /Установлено файлов|установлен|installed/i.test(document.getElementById('modrinth-mod-status').textContent));
+      assert.equal(installCalls.at(-1).instanceId, await page.evaluate(() => currentSettings.activeInstanceId));
+      assert.equal(installCalls.at(-1).channel, type === 'mods' ? 'modrinth-install-mod' : 'modrinth-install-project');
+      if (type !== 'mods') assert.equal(installCalls.at(-1).type, type);
+      if (type === 'mods') await page.screenshot({ path: '.tools/qa-modrinth-menu.png', animations: 'disabled' });
+      await page.click('#close-content-catalog');
+      assert(await page.locator('#content-catalog').isHidden());
       assert.equal(catalogCalls.at(-1).offset, 16); assert.equal(catalogCalls.at(-1).type, type === 'mods' ? 'mod' : type);
     }
+    await page.click('[data-content-tab="worlds"]');
+    assert(await page.locator('#browse-content-catalog').isHidden());
     await page.locator('[data-section="main"]:visible').first().click();
     await page.evaluate(async () => {
       const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
@@ -304,19 +321,17 @@ const currentVersion = require('../package.json').version;
     assert.equal(await page.locator('.wallpaper-video[src]').count(), 1, 'only the visible wallpaper owns a video decoder');
     await page.evaluate(async () => { fields.reduceMotion.checked = true; await saveSettings(); experiments.configure({ visualizer: true }); });
     await page.waitForFunction(() => [...document.querySelectorAll('.wallpaper-video')].every(video => !video.hasAttribute('src') && video.poster.startsWith('data:image/jpeg')));
-    assert.equal(await page.locator('#space-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'reduced motion releases the entire sky backing store');
     assert.equal(await page.locator('#music-visualizer-canvas').evaluate(canvas => canvas.width * canvas.height), 0, 'reduced motion releases the visualizer');
     assert(await page.evaluate(() => !experiments.timer && !playerPreview.animationFrame), 'decorative timers stop');
     assert.equal(memoryModes.at(-1), true, 'the setting requests low WebView2 memory usage');
     await page.evaluate(async () => { fields.reduceMotion.checked = false; await saveSettings(); });
-    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused && document.querySelector('#space-canvas').width > 0);
+    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused);
     await page.evaluate(() => experiments.configure({ visualizer: false }));
     assert.equal(memoryModes.at(-1), false, 'normal memory behavior returns after disabling the setting');
     await page.evaluate(() => window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: false }));
     assert.equal(await page.locator('.wallpaper-video[src]').count(), 0);
-    assert.equal(await page.locator('#space-canvas').evaluate(canvas => canvas.width * canvas.height), 0);
     await page.evaluate(() => window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: true }));
-    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused && document.querySelector('#space-canvas').width > 0);
+    await page.waitForFunction(() => !document.querySelector('#wallpaper-preview video').paused);
     await page.screenshot({ path: '.tools/qa-video-wallpaper.png' });
     for (const width of [960, 1120]) {
       await page.setViewportSize({ width, height: 720 });
@@ -429,10 +444,10 @@ const currentVersion = require('../package.json').version;
       if (width === 1280) await page.screenshot({ path: '.tools/qa-home-final.png' });
       const logout = page.locator('#logout-button');
       const collapsedWidth = (await logout.boundingBox()).width;
-      assert.equal(collapsedWidth, 38);
+      assert.equal(collapsedWidth, 32);
       await logout.hover();
-      await page.waitForFunction(() => document.getElementById('logout-button').getBoundingClientRect().width === 138 && getComputedStyle(document.getElementById('logout-button')).color === 'rgb(253, 164, 175)');
-      assert.equal(await logout.evaluate(el => getComputedStyle(el).color), 'rgb(253, 164, 175)');
+      await page.waitForFunction(() => document.getElementById('logout-button').getBoundingClientRect().width === 32 && getComputedStyle(document.getElementById('logout-button')).color === 'rgb(241, 152, 152)');
+      assert.equal(await logout.evaluate(el => getComputedStyle(el).color), 'rgb(241, 152, 152)');
       assert.equal(await logout.getAttribute('aria-label'), 'Выйти');
       await page.screenshot({path:'.tools/qa-logout-'+width+'.png'});
       await page.mouse.move(500,400);
@@ -494,20 +509,15 @@ const currentVersion = require('../package.json').version;
     assert(await page.locator('#cancel-spotify').isHidden());
     assert(await page.locator('#connect-spotify').isEnabled());
     spotifyUiMode = null;
-    const skySamples = [];
+    const themeSurfaces = [];
     for (const theme of ['light', 'deep', 'contrast']) {
       await page.evaluate(theme => { document.body.dataset.theme = theme; }, theme);
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      skySamples.push(await page.evaluate(() => {
-        const canvas = document.querySelector('#space-canvas'), pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-        const rgb = [0, 0, 0]; let count = 0;
-        for (let offset = 0; offset < pixels.length; offset += 512) { for (let c = 0; c < 3; c++) rgb[c] += pixels[offset + c]; count++; }
-        return rgb.map(value => Math.round(value / count * 100) / 100).join(',');
-      }));
+      themeSurfaces.push(await page.evaluate(() => getComputedStyle(document.body).backgroundColor));
       await page.screenshot({path:'.tools/qa-profile-'+theme+'.png', animations:'disabled'});
       assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth));
     }
-    assert.equal(new Set(skySamples).size, 3, 'starfield palette changes with the theme');
+    assert.equal(new Set(themeSurfaces).size, 3, 'each theme has its own surface palette');
     await page.evaluate(() => {
       window.__uniqueDispatch({ type: 'event', channel: 'window-visibility', data: false });
       const before = launchLog.textContent;
@@ -530,7 +540,8 @@ const currentVersion = require('../package.json').version;
       await page.waitForFunction(language => document.documentElement.lang === language && currentSettings.language === language, language);
       await page.click('[data-settings-tab="debug"]');
       await page.click('#show-current-release');
-      await page.waitForFunction(language => document.querySelector('#release-notes').textContent.includes(language === 'en' ? 'Instances and Discord' : 'Instancias y Discord'), language);
+      const releaseHeading = require('../lib/release-notes.json')[language].split('\n')[0].replace(/^##\s*/, '');
+      await page.waitForFunction(heading => document.querySelector('#release-notes').textContent.includes(heading), releaseHeading);
       await page.screenshot({ path: `.tools/qa-updates-${language}.png` });
       await page.keyboard.press('Escape');
       const missing = new Set();

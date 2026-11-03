@@ -1,5 +1,5 @@
 class AmbientBackground {
-  constructor(canvas, getColors) { this.canvas = canvas; this.getColors = getColors; }
+  constructor(canvas, getColors, isEnabled = () => true) { this.canvas = canvas; this.getColors = getColors; this.isEnabled = isEnabled; }
   dispose() { this.cleanup?.(); this.cleanup = null; }
   start() {
     this.dispose();
@@ -7,7 +7,7 @@ class AmbientBackground {
     const canvas = this.canvas, ctx = canvas.getContext('2d'), getColors = this.getColors;
     let frame = 0, width = 0, height = 0, lastFrame = 0, nebula, textureKey = '';
     const stars = [];
-    const hidden = () => document.hidden || document.body.dataset.windowHidden === 'true';
+    const hidden = () => !this.isEnabled() || document.hidden || document.body.dataset.windowHidden === 'true';
     function skyColors() {
       const accent = getColors()[0].split(',').map(Number);
       const theme = document.body.dataset?.theme;
@@ -147,7 +147,7 @@ class AmbientBackground {
     };
     const onResize = () => { if (!hidden()) resize(); invalidate(); };
     const observer = new MutationObserver(invalidate);
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-accent'] });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-accent', 'data-star-background'] });
     window.addEventListener('resize', onResize);
     document.addEventListener('visibilitychange', invalidate);
     this.cleanup = () => {

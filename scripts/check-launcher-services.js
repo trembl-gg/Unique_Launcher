@@ -40,6 +40,17 @@ async function run() {
     normalizeLoader: value => value || 'fabric', resolveServer: () => null
   });
   const settings = makeSettings();
+  assert.equal(settings.getDefaultSettings().appearance.starBackground, false);
+  settings.saveSettings({ appearance: { starBackground: true } }, 'Stars');
+  assert.equal(makeSettings().getSettings('Stars').appearance.starBackground, true);
+  settings.saveSettings({ appearance: { starBackground: 'true' } }, 'Stars');
+  assert.equal(makeSettings().getSettings('Stars').appearance.starBackground, false);
+  settings.saveSettings({ appearance: { theme: 'oled', transparency: 50, sidebarCollapsed: true } }, 'OLED');
+  assert.deepEqual(makeSettings().getSettings('OLED').appearance, { theme: 'oled', accent: 'emerald', reduceMotion: false, starBackground: false, transparency: 50, sidebarCollapsed: true });
+  for (const [input, expected] of [[-5, 0], [500, 70], ['invalid', 0], [Infinity, 70]]) {
+    settings.saveSettings({ appearance: { transparency: input } }, 'Bounds');
+    assert.equal(makeSettings().getSettings('Bounds').appearance.transparency, expected);
+  }
   settings.saveSettings({ ...settings.getDefaultSettings(), memory: { max: 6144 }, appearance: { accent: '#abcdef', theme: 'deep' }, experiments: { spotifyTheme: true, visualizer: true } }, 'Player');
   const restored = makeSettings().getSettings('Player');
   assert.equal(restored.memory.max, Math.min(6144, memoryBudget()));
@@ -119,7 +130,7 @@ async function run() {
   await assert.rejects(loader.ensureSelectedLoaderVersion('test', { modLoader: 'unknown' }));
   const fs = require('node:fs');
   const vm = require('node:vm');
-  let reduced = true, nextFrame = 1, observerCallback;
+  let reduced = true, enabled = true, nextFrame = 1, observerCallback;
   const frames = new Map(), listeners = new Map();
   const events = { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) };
   let textureBuilds = 0;
@@ -131,7 +142,7 @@ async function run() {
   const sandbox = vm.createContext({ window: browser, document, MutationObserver: class { constructor(cb) { observerCallback = cb; } observe() {} disconnect() {} }, requestAnimationFrame: cb => { const id = nextFrame++; frames.set(id, cb); return id; }, cancelAnimationFrame: id => frames.delete(id) });
   vm.runInContext(fs.readFileSync('renderer/ambient-background.js', 'utf8'), sandbox);
   const canvas = { style: {}, getContext: () => drawing };
-  const background = new browser.AmbientBackground(canvas, () => ['1,2,3', '3,2,1']);
+  const background = new browser.AmbientBackground(canvas, () => ['1,2,3', '3,2,1'], () => enabled);
   const frame = time => { const [id, callback] = frames.entries().next().value; frames.delete(id); callback(time); };
   background.start();
   assert.equal(frames.size, 0, 'reduced motion schedules no canvas frames');
@@ -160,6 +171,11 @@ async function run() {
   assert(canvas.width * canvas.height > 0, 'disabling reduced motion restores the animated sky');
   document.body.dataset.windowHidden = 'true'; listeners.get('visibilitychange')();
   assert.equal(canvas.width * canvas.height, 0, 'native hide releases the sky even before browser visibility updates');
+  document.body.dataset.windowHidden = 'false'; enabled = false; observerCallback();
+  assert.equal(canvas.width * canvas.height, 0, 'disabled star background releases its backing store');
+  assert.equal(frames.size, 0, 'disabled star background schedules no frames');
+  enabled = true; observerCallback();
+  assert(canvas.width * canvas.height > 0, 'star background can be enabled again without restarting');
   background.dispose();
   assert.equal(listeners.size, 0);
   console.log('PASS: loader dispatch and rules; background stops in hidden/reduced-motion modes and releases listeners');
